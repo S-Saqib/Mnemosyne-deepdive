@@ -15,7 +15,7 @@ echo "[Fig 5] ✅ Collecting access statistics completes."
 echo "[Fig 5] ⏳ Solving the bpk optimization problem with different approaches..."
 echo "      (Now running scripts inside 'distribute_lsm_bfsize'...)"
 cd ../distribute_lsm_bfsize
-./run_script.sh
+./run_scripts.sh
 cd -
 
 echo "[Fig 5] ✅ Experiments and plotting complete."

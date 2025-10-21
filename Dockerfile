@@ -1,7 +1,7 @@
 # This version of Ubuntu uses python3.6
 FROM ubuntu:18.04 
 
-RUN apt-get update && apt-get install -y git python3 python3-pip pkg-config build-essential libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive && apt-get install -y git python3 python3-pip pkg-config build-essential libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev texlive-full
 
 RUN pip3 install matplotlib==3.0.3
 RUN pip3 install pandas==1.1.5

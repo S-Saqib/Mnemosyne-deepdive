@@ -30,7 +30,7 @@ All benchmarks were executed on the hardware environment specified below. Please
 * **Compiler**: GCC 12.3.1
 * **Key Dependencies**:
     *  [RocksDB Dependencies](https://github.com/facebook/rocksdb/blob/main/INSTALL.md) (e.g., zlib, bzip2, lz4, zstd)
-    * `python3` (3.6.8), `matplotlib` (3.0.3), `pandas` (1.3.4) for plotting
+    * `python3` (3.6.8), `matplotlib` (3.0.3), `pandas` (1.3.4), and `texlive-full` for plotting
 
 
 
