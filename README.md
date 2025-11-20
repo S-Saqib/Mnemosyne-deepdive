@@ -174,7 +174,7 @@ Below are the details for each script.
     ```
     This experiment does not repeat for three times but the pattern for workload distribution would remain roughly the same.
 
-2. `fig4.sh`: Measures unnecessarily accessed data blocks under different workloads. This can be also executed using RAM disk as we only measure the unnecessarily data blocks. You ca
+2. `fig4.sh`: Measures unnecessarily accessed data blocks under different workloads. This can be also executed using RAM disk as we only measure the unnecessarily data blocks.
     ```
     RAM_DB_HOME=/mnt/ramdisk/${USER}/db_working_home ./fig4.sh
     ```
