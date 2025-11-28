@@ -216,4 +216,4 @@ Below are the details for each script.
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig15-16.sh
     ```
     For YCSB experiments, you need to change the number of runs separately for Figures 15 and 16 if you want to customize the number of runs.
-    For Figure 15, you need to change the variable `runs` in `YCSB-cpp/run_ycsb_basic.sh` (line 92), while for the scalability experiment, you need to the variable `runs` in `YCSB-cpp/run_ycsb_basic.sh` (line 76).
+    For Figure 15, you need to change the variable `runs` in `YCSB-cpp/run_ycsb_basic.sh` (line 92), while for the scalability experiment, you need to the variable `runs` in `YCSB-cpp/run_ycsb_scale.sh` (line 76).
