@@ -21,8 +21,10 @@ do
 	do
 		for bpk in ${bpk_list[@]}
 		do
-			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
-			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --monkey --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
+			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --monkey --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+			rm ${DB_HOME}-monkey-bottom-up/*
+			rm ${DB_HOME}-monkey-top-down/*
 			rm ${DB_HOME}-mnemosyne/*
 			rm ${DB_HOME}-mnemosyne-plus/*
 		done

@@ -25,6 +25,8 @@ def main(args):
     df = pd.read_csv(args.path, sep=",")
     methods = [
         ['uniform', 'black' , 'solid', 'D', 'RocksDB'],
+        ['Monkey-bottom-up', 'tab:green', 'dashed', '^', 'Monkey (Bottom-Up)'],
+        ['Monkey-top-down', 'purple', 'dotted', 'v', 'Monkey (Top-Down)'],
         ['Mnemosyne', 'blue', 'solid', 'p', 'Mnemosyne'],
         ['Mnemosyne+', 'red', 'solid', 'x', 'Mnemosyne$^+$']
     ]
@@ -89,7 +91,9 @@ def main(args):
         
         
     if args.showLegend:
-        plt.legend(loc=args.legendLoc, ncol=1, columnspacing=0.6, labelspacing=0.2,borderaxespad=0.1,handletextpad=0.2,handlelength=2.0,fontsize=fontsize-2)
+        # the legend only fits with a smaller font when the two Monkey variants are plotted as well
+        legend_fontsize = fontsize-2 if len(ax.get_lines()) <= 3 else fontsize-14
+        plt.legend(loc=args.legendLoc, ncol=1, columnspacing=0.6, labelspacing=0.2,borderaxespad=0.1,handletextpad=0.2,handlelength=2.0,fontsize=legend_fontsize)
     plt.tight_layout()
     ax.figure.savefig(args.name, bbox_inches = "tight", dpi=900)
     if args.showLegend:

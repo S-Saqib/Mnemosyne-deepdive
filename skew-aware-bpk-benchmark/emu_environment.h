@@ -57,6 +57,7 @@ public:
   // Other DBOptions
   bool create_if_missing = true;
   bool ribbon_filter = false;
+  bool run_monkey = false;                // monkey | also run Monkey (bottom-up and top-down) in query_lat_exp
   bool allow_write_stall;
   bool level_compaction_dynamic_level_bytes = true;
   rocksdb::BitsPerKeyAllocationType bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kDefaultBpkAlloc;

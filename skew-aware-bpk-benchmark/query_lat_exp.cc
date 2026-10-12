@@ -32,7 +32,8 @@ std::string query_workloadPath = "./workload.txt";
 std::string kDBPath = "./db_working_home";
 std::string query_statsPath = "./dump_query_stats.txt";
 QueryTracker global_query_tracker;
-QueryTracker global_monkey_query_tracker;
+QueryTracker global_monkey_bottom_up_query_tracker;
+QueryTracker global_monkey_top_down_query_tracker;
 QueryTracker global_mnemosyne_query_tracker;
 QueryTracker global_mnemosyne_plus_query_tracker;
 
@@ -89,6 +90,12 @@ int main(int argc, char *argv[]) {
   // show average results for the number of experiment runs
   printEmulationOutput(_env, &global_query_tracker, running_stats_of, _env->experiment_runs);
   running_stats_of << "==========================================================" << std::endl;
+  if (_env->run_monkey) {
+    printEmulationOutput(_env, &global_monkey_bottom_up_query_tracker, running_stats_of, _env->experiment_runs);
+    running_stats_of << "==========================================================" << std::endl;
+    printEmulationOutput(_env, &global_monkey_top_down_query_tracker, running_stats_of, _env->experiment_runs);
+    running_stats_of << "==========================================================" << std::endl;
+  }
   printEmulationOutput(_env, &global_mnemosyne_query_tracker, running_stats_of, _env->experiment_runs);
   running_stats_of << "==========================================================" << std::endl;
   printEmulationOutput(_env, &global_mnemosyne_plus_query_tracker, running_stats_of, _env->experiment_runs);
@@ -130,6 +137,10 @@ int runExperiments(EmuEnv* _env) {
     // Reopen DB
     if (_env->destroy) {
       Status destroy_status = DestroyDB(_env->path, options);
+      if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
+      destroy_status = DestroyDB(_env->path + "-monkey-bottom-up", options);
+      if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
+      destroy_status = DestroyDB(_env->path + "-monkey-top-down", options);
       if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
       destroy_status = DestroyDB(_env->path + "-mnemosyne", options);
       if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
@@ -211,8 +222,85 @@ int runExperiments(EmuEnv* _env) {
     ingestion_query_track = NULL;
     ReopenDB(db, options, flush_options);
     get_perf_context()->ClearPerLevelPerfContext();
-    CloseDB(db, flush_options); 
-   
+    CloseDB(db, flush_options);
+
+    if (_env->run_monkey) {
+      // Monkey derives the bits-per-key of each level from the expected number of entries (same estimation as runtime_tput_exp)
+      long num_inserts = ingestion_wd.insert_num + query_wd.insert_num;
+      long space_amp = std::min((long)query_wd.update_num, (long)(num_inserts*(1.0 - 1.0/_env->size_ratio)));
+      // bottom-up fills the tree from the last level (dynamic level bytes), top-down fills it from level 1
+      for (bool bottom_up : {true, false}) {
+        std::string name = bottom_up ? "monkey-bottom-up" : "monkey-top-down";
+        QueryTracker *global_monkey_query_tracker = bottom_up ? &global_monkey_bottom_up_query_tracker : &global_monkey_top_down_query_tracker;
+
+        if (_env->block_cache_capacity == 0) {
+          ;// do nothing
+        } else {
+          table_options.block_cache.reset();
+          table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+          ;// invoke manual block_cache
+        }
+
+        options.create_if_missing = true;
+        table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kNaiveMonkeyBpkAlloc;
+        table_options.modular_filters = false;
+        std::vector<double> bpk_list (_env->num_levels, _env->bits_per_key);
+        getNaiveMonkeyBitsPerKey(num_inserts + space_amp, floor(_env->buffer_size/_env->entry_size), _env->size_ratio, 
+                _env->level0_file_num_compaction_trigger, _env->bits_per_key, &bpk_list, bottom_up, false, running_stats_of);
+        table_options.naive_monkey_bpk_list = bpk_list;
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        options.level_compaction_dynamic_level_bytes = bottom_up;
+        s = DB::Open(options, _env->path + "-" + name, &db_monkey);
+        if (!s.ok()) std::cerr << s.ToString() << std::endl;
+        ingestion_query_track = new QueryTracker();
+        std::cout << "Ingestiing workload (purely inserts) with " << name << "..." << std::endl;
+        runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
+        s = ReopenDB(db_monkey, options, flush_options);
+        if (!s.ok()) std::cerr << s.ToString() << std::endl;
+        get_iostats_context()->Reset();
+        get_perf_context()->Reset();
+        SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
+        get_perf_context()->EnablePerLevelPerfContext();
+        QueryTracker *monkey_query_track = new QueryTracker();
+        db_monkey->GetOptions().statistics->Reset();
+        std::cout << "Executing workload (containing mixed operations) with " << name << "..." << std::endl;
+        runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track, running_stats_of);
+        SetPerfLevel(kDisable);
+        populateQueryTracker(monkey_query_track, db_monkey, table_options, _env, running_stats_of);
+        dumpStats(global_monkey_query_tracker, monkey_query_track); 
+        if (_env->verbosity > 1) {
+          std::string state;
+          db_monkey->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+          running_stats_of << state << std::endl;
+        }
+        running_stats_of << name << " sst hit : " << monkey_query_track->bloom_sst_miss_count << "\t " << name << " tp : " << monkey_query_track->bloom_sst_true_positive_count << std::endl;
+        bloom_false_positives = monkey_query_track->bloom_sst_hit_count - monkey_query_track->bloom_sst_true_positive_count;
+        running_stats_of << "accessed data blocks (" << name << "): " << monkey_query_track->data_block_read_count << std::endl;
+        running_stats_of << "read bytes (" << name << "): " << monkey_query_track->bytes_read << std::endl;
+        running_stats_of << "overall false positives (" << name << "): " << bloom_false_positives << std::endl;
+        running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (" << name << "): " << 
+          bloom_false_positives*100.0/(bloom_false_positives + monkey_query_track->bloom_sst_miss_count) << "%" << std::endl;
+        if (monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed > 0) {
+          running_stats_of << std::fixed << std::setprecision(6) << "point query latency (" << name << "): " <<  static_cast<double>(monkey_query_track->point_lookups_cost +
+          monkey_query_track->zero_point_lookups_cost)/(monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+        }
+        if (monkey_query_track->inserts_completed + monkey_query_track->updates_completed + monkey_query_track->point_deletes_completed > 0) {
+          running_stats_of << std::fixed << std::setprecision(6) << "ingestion latency (" << name << "): " <<  static_cast<double>(monkey_query_track->inserts_cost +
+          monkey_query_track->updates_cost + monkey_query_track->point_deletes_cost)/(monkey_query_track->inserts_completed + monkey_query_track->updates_completed + monkey_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+        }
+        if (monkey_query_track->total_completed > 0) {
+          running_stats_of << std::fixed << std::setprecision(6) << "avg operation latency (" << name << "): " <<  static_cast<double>(monkey_query_track->workload_exec_time)/monkey_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
+        }
+        printBFBitsPerKey(db_monkey, running_stats_of);
+        delete monkey_query_track;
+        delete ingestion_query_track;
+        ingestion_query_track = NULL;
+        get_perf_context()->ClearPerLevelPerfContext();
+        CloseDB(db_monkey, flush_options);
+      }
+      options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
+    }
+
 
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
@@ -395,6 +483,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
 
   args::Flag no_block_cache_cmd(group1, "block_cache", "Disable block cache", {"dis_blk_cache", "disable_block_cache"});
   args::Flag ribbon_filter_cmd(group1, "ribbon_filter", "Enable Ribbon filter", {"rf", "ribbon_filter"});
+  args::Flag run_monkey_cmd(group1, "run_monkey", "Also run Monkey (both bottom-up and top-down)", {"monkey", "run_monkey"});
   args::ValueFlag<int> block_cache_capacity_cmd(group1, "block_cache_capacity", "The capacity (kilobytes) of block cache [def: 8 MB]", {"BCC", "block_cache_capacity"});
   args::ValueFlag<double> block_cache_high_priority_ratio_cmd(group1, "block_cache_high_priority_ratio", "The ratio of capacity reserved for high priority blocks in block cache [def: 1.0 ]", {"BCHPR", "block_cache_high_priority_ratio"});
   args::ValueFlag<int> experiment_runs_cmd(group1, "experiment_runs", "The number of experiments repeated each time [def: 1]", {'R', "run"});
@@ -454,6 +543,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->block_cache_high_priority_ratio = block_cache_high_priority_ratio_cmd ? args::get(block_cache_high_priority_ratio_cmd) : BLOCK_CACHE_HIGH_PRIORITY_RATIO_DEFAULT;
   _env->bits_per_key = bits_per_key_cmd ? args::get(bits_per_key_cmd) : FILTER_BPK_DEFAULT;
   _env->ribbon_filter = ribbon_filter_cmd ? true : false; // default is false, i.e., disable ribbon filter
+  _env->run_monkey = run_monkey_cmd ? true : false; // default is false, i.e., do not run Monkey
 
   _env->experiment_runs = experiment_runs_cmd ? args::get(experiment_runs_cmd) : NUMBER_OF_RUNS_DEFAULT; 
 //  _env->num_inserts = num_inserts_cmd ? args::get(num_inserts_cmd) : 0;

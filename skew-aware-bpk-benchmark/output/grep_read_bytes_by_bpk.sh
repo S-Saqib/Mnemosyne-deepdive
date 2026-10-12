@@ -15,3 +15,10 @@ echo "Mnemosyne"
 grep "read bytes (mnemosyne):" *output.txt | grep ${str} | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
 echo "Mnemosyne+"
 grep "read bytes (mnemosyne-plus):" *output.txt | grep ${str} | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
+# Monkey is only run when query_lat_exp is given --monkey
+if grep "read bytes (monkey-bottom-up):" *output.txt | grep -q ${str}; then
+	echo "Monkey-bottom-up"
+	grep "read bytes (monkey-bottom-up):" *output.txt | grep ${str} | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
+	echo "Monkey-top-down"
+	grep "read bytes (monkey-top-down):" *output.txt | grep ${str} | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
+fi
