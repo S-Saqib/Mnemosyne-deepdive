@@ -38,7 +38,7 @@ All benchmarks were executed on the hardware environment specified below. Please
 
 Before running any experiments, please ensure your environment is set up correctly:
 
-1.  **Install Dependencies**: Install the necessary libraries and tools listed above using your system's package manager (e.g., `apt-get` or `yum`).
+1.  **Install Dependencies**: Install the necessary libraries and tools listed above using your system's package manager (e.g., `apt-get` or `yum`). On Debian/Ubuntu, `./install-deps.sh` installs all of them and verifies the result (`./install-deps.sh --check` only verifies).
 
 2.  **Increase File Limit**: It's crucial to increase the file descriptor limit. This setting is not permanent and must be run in the same shell session as the experiments. Otherwise, experiments can be interrupted due to insufficient maximum open files.
     ```bash
