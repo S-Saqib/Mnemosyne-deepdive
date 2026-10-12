@@ -13,6 +13,12 @@ fontsize = 34
 mpl.rcParams.update({'font.size': fontsize})
 
 metrics = ['read_latency', 'write_latency', 'tput', 'read_bytes', 'data_blocks']
+# unit name -> [divisor, y-axis label]
+bytes_units = {
+    '100GB': [1024*1024*1024*100, r'Read bytes ($\times$100 GB)'],
+    'GB': [1024*1024*1024, 'Read bytes (GB)'],
+    'MB': [1024*1024, 'Read bytes (MB)']
+}
 
 def main(args):
     
@@ -30,7 +36,7 @@ def main(args):
             elif args.metric == 'tput':
                 df[method[0]] = 0.1/df[method[0]]
             elif args.metric == 'read_bytes':
-                df[method[0]] /= 1024*1024*1024*100
+                df[method[0]] /= bytes_units[args.bytesUnit][0]
             elif args.metric == 'data_blocks':
                 df[method[0]] -= args.E
                 if args.Q != 0:
@@ -51,6 +57,8 @@ def main(args):
         ax.set_ylabel('Read latency ($\mu$s/op)')
         if args.ymax != -1000:
             ax.set_ylim(bottom=0.0, top=args.ymax)
+        elif args.autoY:
+            ax.set_ylim(bottom=0.0)
         else:
             ax.set_ylim(bottom=0.0, top=45)
             ax.set_yticks([0,15,30,45])
@@ -63,9 +71,14 @@ def main(args):
         ax.set_ylim(bottom=0.0, top=13)
         ax.set_yticks([0,3,6,9,12])
     elif args.metric == 'read_bytes':
-        ax.set_ylabel(r'Read bytes ($\times$100 GB)')
-        ax.set_ylim(bottom=0.0, top=6)
-        ax.set_yticks([0,2,4,6,8])
+        ax.set_ylabel(bytes_units[args.bytesUnit][1])
+        if args.ymax != -1000:
+            ax.set_ylim(bottom=0.0, top=args.ymax)
+        elif args.autoY or args.bytesUnit != '100GB':
+            ax.set_ylim(bottom=0.0)
+        else:
+            ax.set_ylim(bottom=0.0, top=6)
+            ax.set_yticks([0,2,4,6,8])
     else:
         ax.set_ylabel('\#data blocks')
         if args.ymax != -1000:
@@ -94,6 +107,8 @@ if __name__ == "__main__":
     parser.add_argument('--showLegend', action='store_true', help='show the legend')
     parser.add_argument('--legendLoc',help='the location of the legend', default='lower right')
     parser.add_argument('--ymax',help='the maximum y value', type=float, default=-1000)
+    parser.add_argument('--autoY', action='store_true', help='choose the maximum y value from the data (read_latency and read_bytes)')
+    parser.add_argument('--bytesUnit',help='the unit of read bytes', choices=list(bytes_units.keys()), default='100GB')
     parser.add_argument('--width',help='the width of the figure', type=float, default=6)
     
     args = parser.parse_args()

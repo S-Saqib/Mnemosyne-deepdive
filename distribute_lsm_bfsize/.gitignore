@@ -1,0 +1,14 @@
+build
+.vscode
+file-access-exp-data
+varyN_bpk6_E128_ED_Q4M
+N2.35M_bpk6_E128
+*.pdf
+N2.35M_bpk4_E128
+N2.35M_bpk8_E128
+N2M_bpk4_E128
+N4.7M_bpk4_E128
+N4.7M_bpk8_E128
+N8M_bpk8_E128_ED
+plt-log.txt
+exp-log.txt

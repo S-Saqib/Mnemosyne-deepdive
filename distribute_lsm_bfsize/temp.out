@@ -1,0 +1,8 @@
+avgFpr Monkey:         7.53649e-08
+avgFpr BinarySearch:   7.53648e-08
+avgFpr ScanNormalized: 7.53649e-08
+avgTime Monkey:        40.5295
+avgTime BinarySearch:  0.000391919
+avgTime ScanNormalized:0.000364679
+loop_cnt:              0
+number of Files:       1502
