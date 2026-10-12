@@ -27,15 +27,15 @@ verify_executables() {
 }
 
 cd K-V-Workload-Generator/
-make load_gen -j ($nproc)
+make load_gen -j $(nproc)
 cd -
 
 cd skew-aware-rocksdb-8.9.1/
-make static_lib -j ($nproc)
+make static_lib -j $(nproc)
 cd -
 
 cd skew-aware-bpk-benchmark/
-make -j ($nproc)
+make -j $(nproc)
 cd -
 
 verify_executables
