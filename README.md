@@ -204,6 +204,7 @@ Below are the details for each script.
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig12.sh
     ```
     You can directly set the number of runs in `fig12.sh` by specifying the variable `RUNS`, just like `fig4.sh`.
+    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/2000 scale version that finishes in under 5 minutes, but its numbers are not comparable to the paper.
 
 7. `fig13-14.sh`: Measures the query latency and the number of read bytes for workload type II using a slower SSD.
     ```
