@@ -92,9 +92,9 @@ def main(args):
         
         
     if args.showLegend:
-        # the legend only fits with a smaller font when the two Monkey variants are plotted as well
-        legend_fontsize = fontsize-2 if len(ax.get_lines()) <= 3 else fontsize-14
-        plt.legend(loc=args.legendLoc, ncol=1, columnspacing=0.6, labelspacing=0.2,borderaxespad=0.1,handletextpad=0.2,handlelength=2.0,fontsize=legend_fontsize)
+        # with more than the paper's three methods, the legend only fits with a smaller font and in two columns
+        many_methods = len(ax.get_lines()) > 3
+        plt.legend(loc=args.legendLoc, ncol=2 if many_methods else 1, columnspacing=0.6, labelspacing=0.2,borderaxespad=0.1,handletextpad=0.2,handlelength=2.0,fontsize=fontsize-14 if many_methods else fontsize-2)
     plt.tight_layout()
     ax.figure.savefig(args.name, bbox_inches = "tight", dpi=900)
     if args.showLegend:

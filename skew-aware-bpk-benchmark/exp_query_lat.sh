@@ -5,7 +5,7 @@ B=32
 T=4
 E=512
 R=1
-bpk_list=("2" "3" "4" "5" "6" "7")
+bpk_list=("2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12")
 BCC="${BCC:-524288}"
 # Remember to specify a path for your dedicated storage device
 DB_HOME="${FAST_DB_HOME:-./db_working_home}"

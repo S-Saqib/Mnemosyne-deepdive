@@ -13,4 +13,5 @@ do
 	mv output-bpk/*.txt output-bpk${i}/
 done
 mkdir -p "agg_output/"
-python3 merge_by_short_bpk_with_rw_latency.py ${runs} agg_output/ output-bpk
+# this list must match bpk_list in exp_query_lat.sh
+python3 merge_by_short_bpk_with_rw_latency.py ${runs} agg_output/ output-bpk --bpk-list 2 3 4 5 6 7 8 9 10 11 12

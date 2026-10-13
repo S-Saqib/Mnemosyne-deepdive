@@ -213,8 +213,8 @@ Below are the details for each script.
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig12.sh
     ```
     You can directly set the number of runs in `fig12.sh` by specifying the variable `RUNS`, just like `fig4.sh`.
-    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction and ElasticBF (the `--monkey` and `--ebf` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). No other figure runs them. With six methods instead of three, this experiment takes roughly twice as long as the paper's version and keeps six copies of the database on the fast SSD.
-    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version (ElasticBF's segment size and lifeTime are scaled down as well) that takes roughly 12 minutes, but its numbers are not comparable to the paper.
+    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction and ElasticBF (the `--monkey` and `--ebf` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). No other figure runs them. It also sweeps the bits-per-key from 2 to 12 instead of the paper's 2 to 7 (`bpk_list` in the same script). With six methods instead of three and 11 bits-per-key values instead of 6, this experiment takes roughly four times as long as the paper's version and keeps six copies of the database on the fast SSD.
+    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version (ElasticBF's segment size and lifeTime are scaled down as well) that takes roughly 20 minutes, but its numbers are not comparable to the paper.
 
 7. `fig13-14.sh`: Measures the query latency and the number of read bytes for workload type II using a slower SSD.
     ```
