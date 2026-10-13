@@ -13,6 +13,9 @@ if [ "${QUICK:-0}" = "1" ]; then
 	# inserts, point queries and updates (workload_type_II.sh), then buffer size
 	# in pages and block cache in KB (exp_query_lat.sh)
 	SCALE_ENV="I=21000 Q=31000 U=10000 P=64 BCC=4096"
+	# ElasticBF segment size and lifeTime (exp_query_lat.sh), scaled down as well:
+	# 4 segments per file as at full scale, and a lifeTime of a few Gets per segment
+	SCALE_ENV="${SCALE_ENV} EBF_SEG_SIZE=262144 EBF_LIFETIME=200"
 	# fit the y-axes to the data instead of using the full-scale ranges
 	LATENCY_YMAX="--autoY"
 	PLOT_ARGS="--autoY --bytesUnit=MB"

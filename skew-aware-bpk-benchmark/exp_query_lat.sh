@@ -13,6 +13,18 @@ WORKLOAD_HOME="../workload_generator_scripts"
 Z_list=("0.0" "0.5" "1.0")
 ZD_list=("0" "1")
 OUTPUT_DIR="output-bpk"
+# ElasticBF knobs (see ../ELASTICBF.md), which can be overridden from the environment.
+# An empty EBF_UNIT_BPK means "one unit = the whole budget b", as in the paper.
+EBF_SEG_SIZE="${EBF_SEG_SIZE:-4194304}"
+EBF_UNITS="${EBF_UNITS:-6}"
+EBF_LIFETIME="${EBF_LIFETIME:-10000}"
+EBF_FLAGS="--ebf --ebf_seg_size ${EBF_SEG_SIZE} --ebf_units ${EBF_UNITS} --ebf_lifetime ${EBF_LIFETIME}"
+if [ -n "${EBF_UNIT_BPK}" ]; then
+	EBF_FLAGS="${EBF_FLAGS} --ebf_unit_bpk ${EBF_UNIT_BPK}"
+fi
+if [ -n "${EBF_EXTRA_FLAGS}" ]; then
+	EBF_FLAGS="${EBF_FLAGS} ${EBF_EXTRA_FLAGS}"
+fi
 mkdir -p "${OUTPUT_DIR}"
 #ulimit -n 65535
 for ZD in ${ZD_list[@]}
@@ -21,12 +33,13 @@ do
 	do
 		for bpk in ${bpk_list[@]}
 		do
-			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --monkey --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
-			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --monkey --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --monkey ${EBF_FLAGS} --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
+			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --monkey ${EBF_FLAGS} --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
 			rm ${DB_HOME}-monkey-bottom-up/*
 			rm ${DB_HOME}-monkey-top-down/*
 			rm ${DB_HOME}-mnemosyne/*
 			rm ${DB_HOME}-mnemosyne-plus/*
+			rm ${DB_HOME}-elasticbf/*
 		done
 		cd ${OUTPUT_DIR}/
 		echo "../output/grep_accessed_data_blocks_by_bpk.sh ${ZD} ${Z} > accessed_data_blocks_ZD${ZD}_Z${Z}_result.txt"
