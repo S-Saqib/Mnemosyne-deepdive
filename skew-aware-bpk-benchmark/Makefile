@@ -17,7 +17,7 @@ endif
 
 .PHONY: clean librocksdb
 
-all: bpk_benchmark query_lat_exp query_statistics_est_benchmark runtime_tput_exp
+all: bpk_benchmark query_lat_exp query_statistics_est_benchmark runtime_tput_exp elasticbf_test
 
 query_statistics_est_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS) -Wno-unused-result
@@ -46,8 +46,12 @@ bpk_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_u
 bpk_benchmark_debug: librocksdb_debug emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) bpk_benchmark.cc -o$@ emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -ggdb -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS) -Wno-unused-result
 
+# Correctness / sanity test of the ElasticBF implementation
+elasticbf_test: librocksdb elasticbf_test.cc
+	$(CXX) $(CXXFLAGS) $@.cc -o$@ ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++17 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS) -Wno-unused-result
+
 clean:
-	rm -rf bpk_benchmark bpk_benchmark_debug query_lat_exp query_lat_exp_debug bpk_benchmark_debug.* query_statistics_est_benchmark query_statistics_est_benchmark_debug runtime_tput_exp runtime_tput_exp_debug
+	rm -rf elasticbf_test bpk_benchmark bpk_benchmark_debug query_lat_exp query_lat_exp_debug bpk_benchmark_debug.* query_statistics_est_benchmark query_statistics_est_benchmark_debug runtime_tput_exp runtime_tput_exp_debug
 
 librocksdb:
 	cd ${rocksdbpath} && $(MAKE) static_lib

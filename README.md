@@ -13,6 +13,14 @@ The repository is structured as follows:
 * **`distribute_lsm_bfsize/`**: a standalone microbenchmark when solving the optimal bits-per-key assignment given access statistics.
 * **`exp-figures/`**: Directory where the generated figures will be saved.
 
+### ElasticBF (added)
+
+The modified RocksDB also implements **ElasticBF** (Li et al., USENIX ATC 2019),
+so that it can be compared with RocksDB, Mnemosyne and Mnemosyne+ on the same
+workloads: add `--ebf` to `query_lat_exp` or `runtime_tput_exp`, or run
+`exp-scripts/fig12-elasticbf.sh`. See [ELASTICBF.md](ELASTICBF.md) for the
+design, the flags, and the assumptions made where the paper is not explicit.
+
 
 ## Hardware and Software Environment
 

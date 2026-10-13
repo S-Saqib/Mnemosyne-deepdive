@@ -182,6 +182,7 @@ LIB_SOURCES =                                                   \
   table/block_based/block_prefetcher.cc                         \
   table/block_based/block_prefix_index.cc                       \
   table/block_based/data_block_hash_index.cc                    \
+  table/block_based/elastic_bf.cc                                \
   table/block_based/data_block_footer.cc                        \
   table/block_based/filter_block_reader_common.cc               \
   table/block_based/filter_policy.cc                            \

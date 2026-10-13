@@ -52,6 +52,7 @@
 #include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/block_prefix_index.h"
 #include "table/block_based/block_type.h"
+#include "table/block_based/elastic_bf.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -135,7 +136,66 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
-BlockBasedTable::~BlockBasedTable() { delete rep_; }
+BlockBasedTable::~BlockBasedTable() {
+  // Unregister from ElasticBF first: it waits for in-flight unit loads that
+  // still use rep_->file.
+  rep_->elastic_table.reset();
+  delete rep_;
+}
+
+Status BlockBasedTable::ReadElasticBFBlock(FilePrefetchBuffer* prefetch_buffer,
+                                           const BlockHandle& handle,
+                                           std::string* out) const {
+  BlockContents contents;
+  ReadOptions ro;
+  BlockFetcher fetcher(rep_->file.get(), prefetch_buffer, rep_->footer, ro,
+                       handle, &contents, rep_->ioptions,
+                       /*do_uncompress=*/false, /*maybe_compressed=*/false,
+                       BlockType::kFilter, UncompressionDict::GetEmptyDict(),
+                       rep_->persistent_cache_options);
+  IOStatus s = fetcher.ReadBlockContents();
+  if (!s.ok()) return s;
+  out->assign(contents.data.data(), contents.data.size());
+  return Status::OK();
+}
+
+Status BlockBasedTable::SetupElasticBF(FilePrefetchBuffer* prefetch_buffer,
+                                       InternalIterator* meta_iter,
+                                       uint64_t file_number) {
+  if (!rep_->table_options.elastic_bf ||
+      rep_->table_options.elastic_bf_manager == nullptr ||
+      (rep_->filter_policy == nullptr && rep_->table_options.filter_policy)) {
+    // skip_filters (filter_policy cleared) => no ElasticBF either
+    return Status::OK();
+  }
+  BlockHandle index_handle;
+  Status s = FindOptionalMetaBlock(meta_iter, elastic_bf::kIndexBlockName,
+                                   &index_handle);
+  if (!s.ok() || index_handle.IsNull()) {
+    // no ElasticBF index (e.g. table without point keys / built without
+    // ElasticBF): no filtering for this table
+    return Status::OK();
+  }
+  std::string contents;
+  s = ReadElasticBFBlock(prefetch_buffer, index_handle, &contents);
+  if (!s.ok()) return s;
+  elastic_bf::SegmentIndex index;
+  s = elastic_bf::DecodeIndex(contents, &index);
+  if (!s.ok()) return s;
+  std::shared_ptr<ElasticBFManager> mgr =
+      rep_->table_options.elastic_bf_manager;
+  auto* ts = mgr->RegisterTable(
+      file_number, rep_->internal_comparator.user_comparator(),
+      std::move(index),
+      [this, prefetch_buffer](const BlockHandle& h, std::string* out) {
+        return ReadElasticBFBlock(prefetch_buffer, h, out);
+      },
+      [this](const BlockHandle& h, std::string* out) {
+        return ReadElasticBFBlock(nullptr, h, out);
+      });
+  rep_->elastic_table.reset(new ElasticBFTable(std::move(mgr), ts));
+  return Status::OK();
+}
 
 namespace {
 // Read the block identified by "handle" from "file".
@@ -790,6 +850,11 @@ Status BlockBasedTable::Open(
       ro, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
       prefetch_all, table_options, level, file_size,
       max_file_size_for_l0_meta_pin, &lookup_context);
+
+  if (s.ok()) {
+    s = new_table->SetupElasticBF(prefetch_buffer.get(), metaindex_iter.get(),
+                                  cur_file_num);
+  }
 
   if (s.ok()) {
     // Update tail prefetch stats
@@ -2343,7 +2408,19 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   bool may_match = true;
   bool tmp_no_io = no_io;
   HashDigest origin_hash_digest = get_context->hash_digest_;
-  while (true) {
+  const bool use_elastic_bf = !skip_filters && rep_->elastic_table != nullptr;
+  if (use_elastic_bf) {
+    size_t ts_sz_e =
+        rep_->internal_comparator.user_comparator()->timestamp_size();
+    Slice ukey_e = StripTimestampFromUserKey(ExtractUserKey(key), ts_sz_e);
+    may_match = rep_->elastic_table->KeyMayMatch(ukey_e);
+    if (may_match) {
+      PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+    } else {
+      PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
+    }
+  }
+  while (!use_elastic_bf) {
     if (!tmp_no_io &&
         modular_filter_index >= get_context->max_accessed_modulars_) {
       tmp_no_io = true;
@@ -2491,7 +2568,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       }
     }
-    if (matched && (filter != nullptr)) {
+    if (matched && (filter != nullptr || use_elastic_bf)) {
       if (rep_->whole_key_filtering) {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
       } else {

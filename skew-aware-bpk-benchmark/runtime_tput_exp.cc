@@ -15,6 +15,7 @@
 #include <iomanip>
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/elastic_bf.h"
 #include "args.hxx"
 #include "aux_time.h"
 #include "emu_environment.h"
@@ -34,12 +35,14 @@ QueryTracker global_query_tracker;
 QueryTracker global_monkey_top_down_query_tracker;
 QueryTracker global_monkey_bottom_up_query_tracker;
 QueryTracker global_mnemosyne_query_tracker;
+QueryTracker global_elasticbf_query_tracker;
 ofstream running_stats_of;
 
 DB* db = nullptr;
 DB* db_monkey_bottom_up = nullptr;
 DB* db_monkey_top_down = nullptr;
 DB* db_mnemosyne = nullptr;
+DB* db_elasticbf = nullptr;
 
 
 int runExperiments(EmuEnv* _env);    // API
@@ -78,6 +81,10 @@ int main(int argc, char *argv[]) {
   printEmulationOutput(_env, &global_monkey_bottom_up_query_tracker, running_stats_of, _env->experiment_runs);
   running_stats_of << "==========================================================" << std::endl;
   printEmulationOutput(_env, &global_mnemosyne_query_tracker, running_stats_of, _env->experiment_runs);
+  if (_env->run_elasticbf) {
+    running_stats_of << "==========================================================" << std::endl;
+    printEmulationOutput(_env, &global_elasticbf_query_tracker, running_stats_of, _env->experiment_runs);
+  }
   
   running_stats_of << "===== Average stats of " << _env->experiment_runs << " runs ====="  << std::endl;
 
@@ -108,6 +115,7 @@ int runExperiments(EmuEnv* _env) {
   std::vector<std::pair<double, double>> monkey_top_down_throughput_and_bpk_collector;
   std::vector<std::pair<double, double>> monkey_bottom_up_throughput_and_bpk_collector;
   std::vector<std::pair<double, double>> mnemosyne_throughput_and_bpk_collector;
+  std::vector<std::pair<double, double>> elasticbf_throughput_and_bpk_collector;
   std::vector<std::pair<double, double>> temp_collector;
 
   // Starting experiments
@@ -125,6 +133,7 @@ int runExperiments(EmuEnv* _env) {
       DestroyDB(_env->path + "-monkey-top-down", options);
       DestroyDB(_env->path + "-monkey-bottom-up", options);
       DestroyDB(_env->path + "-mnemosyne", options);
+      if (_env->run_elasticbf) DestroyDB(_env->path + "-elasticbf", options);
     }
     Status s;
     // Prepare Perf and I/O stats
@@ -393,6 +402,79 @@ int runExperiments(EmuEnv* _env) {
       table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
       ;// invoke manual block_cache
     }
+
+    // ------------------------------------------------------------------
+    // ElasticBF (Li et al., USENIX ATC'19). Filter units live outside the
+    // block cache; by default the block cache is shrunk by the expected unit
+    // budget (bits_per_key x #inserts / 8 bytes) so that total memory matches
+    // the other configurations (disable with --ebf_keep_bcc).
+    // ------------------------------------------------------------------
+    if (_env->run_elasticbf) {
+      Options ebf_options = options;
+      ebf_options.create_if_missing = true;
+      ebf_options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
+      ebf_options.point_reads_track_method = _env->point_reads_track_method;
+      BlockBasedTableOptions ebf_table_options = table_options;
+      configElasticBF(_env, &ebf_table_options);
+      if (_env->block_cache_capacity != 0) {
+        uint64_t bcc = (uint64_t)_env->block_cache_capacity*1024;
+        uint64_t budget = (uint64_t)(_env->bits_per_key * query_wd.insert_num / 8.0);
+        if (!_env->ebf_keep_block_cache) bcc = bcc > budget ? bcc - budget : 0;
+        running_stats_of << "elasticbf expected unit memory budget (bytes): " << budget << "\t block cache (bytes): " << bcc << std::endl;
+        ebf_table_options.block_cache = NewLRUCache(bcc, -1, false, _env->block_cache_high_priority_ratio);
+      }
+      ebf_options.table_factory.reset(NewBlockBasedTableFactory(ebf_table_options));
+      ebf_options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      s = DB::Open(ebf_options, _env->path + "-elasticbf", &db_elasticbf);
+      if (!s.ok()) std::cerr << s.ToString() << std::endl;
+      assert(s.ok());
+      get_iostats_context()->Reset();
+      get_perf_context()->Reset();
+      get_perf_context()->ClearPerLevelPerfContext();
+      get_perf_context()->EnablePerLevelPerfContext();
+      SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
+      QueryTracker *elasticbf_query_track = new QueryTracker();
+      std::cout << "[Run " << i+1 << "] Executing workload with ElasticBF..." << std::endl;
+      if (_env->throughput_collect_interval == 0) {
+        runWorkload(db_elasticbf, _env, &ebf_options, &ebf_table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, elasticbf_query_track, running_stats_of);
+      } else {
+        temp_collector.clear();
+        runWorkload(db_elasticbf, _env, &ebf_options, &ebf_table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, elasticbf_query_track, running_stats_of, &temp_collector);
+        merge_tput_vectors(&elasticbf_throughput_and_bpk_collector, &temp_collector);
+      }
+      SetPerfLevel(kDisable);
+      populateQueryTracker(elasticbf_query_track, db_elasticbf, ebf_table_options, _env, running_stats_of);
+      if (!_env->ebf_sync_load) {
+        // Units loaded by ElasticBF's background thread are not visible in this
+        // thread's iostats context; count them as read bytes of the workload.
+        ElasticBFStatistics ebf_st;
+        if (GetElasticBFStatistics(ebf_options.table_factory.get(), &ebf_st).ok()) {
+          elasticbf_query_track->bytes_read += ebf_st.unit_load_bytes;
+        }
+      }
+      dumpStats(&global_elasticbf_query_tracker, elasticbf_query_track);
+      bloom_false_positives = elasticbf_query_track->bloom_sst_hit_count - elasticbf_query_track->bloom_sst_true_positive_count;
+      running_stats_of << "accessed data blocks (elasticbf): " << elasticbf_query_track->data_block_read_count << std::endl;
+      running_stats_of << "read bytes (elasticbf): " << elasticbf_query_track->bytes_read << std::endl;
+      running_stats_of << "overall false positives (elasticbf): " << bloom_false_positives << std::endl;
+      running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (elasticbf): " <<
+        bloom_false_positives*100.0/(bloom_false_positives + elasticbf_query_track->bloom_sst_miss_count) << "%" << std::endl;
+      if (elasticbf_query_track->point_lookups_completed + elasticbf_query_track->zero_point_lookups_completed > 0) {
+        running_stats_of << std::fixed << std::setprecision(6) << "point query latency (elasticbf): " <<  static_cast<double>(elasticbf_query_track->point_lookups_cost +
+        elasticbf_query_track->zero_point_lookups_cost)/(elasticbf_query_track->point_lookups_completed + elasticbf_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+      }
+      if (elasticbf_query_track->inserts_completed + elasticbf_query_track->updates_completed + elasticbf_query_track->point_deletes_completed > 0) {
+        running_stats_of << std::fixed << std::setprecision(6) << "ingestion latency (elasticbf): " <<  static_cast<double>(elasticbf_query_track->inserts_cost +
+        elasticbf_query_track->updates_cost + elasticbf_query_track->point_deletes_cost)/(elasticbf_query_track->inserts_completed + elasticbf_query_track->updates_completed + elasticbf_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+      }
+      if (elasticbf_query_track->total_completed > 0) {
+        running_stats_of << std::fixed << std::setprecision(6) << "avg operation latency (elasticbf): " <<  static_cast<double>(elasticbf_query_track->workload_exec_time)/elasticbf_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
+      }
+      s = BackgroundJobMayAllCompelte(db_elasticbf);
+      printElasticBFStats(ebf_options, running_stats_of);
+      delete elasticbf_query_track;
+      CloseDB(db_elasticbf, flush_options);
+    }
     std::cout << "End of experiment run: " << i+1 << std::endl;
   }
 
@@ -413,6 +495,13 @@ int runExperiments(EmuEnv* _env) {
      mnemosyne_throughput_and_bpk_collector[i].first /= _env->experiment_runs;
      mnemosyne_throughput_and_bpk_collector[i].second /= _env->experiment_runs;
     }
+    for (int i = 0; i < elasticbf_throughput_and_bpk_collector.size(); i++) {
+     elasticbf_throughput_and_bpk_collector[i].first /= _env->experiment_runs;
+     elasticbf_throughput_and_bpk_collector[i].second /= _env->experiment_runs;
+    }
+    if (_env->run_elasticbf) {
+      write_collected_throughput({throughput_and_bpk_collector, monkey_bottom_up_throughput_and_bpk_collector, monkey_top_down_throughput_and_bpk_collector, mnemosyne_throughput_and_bpk_collector, elasticbf_throughput_and_bpk_collector}, {"uniform", "monkey-bottom-up", "monkey-top-down", "mnemosyne", "elasticbf"}, throughputPath, bpkPath, _env->throughput_collect_interval);
+    } else
     write_collected_throughput({throughput_and_bpk_collector, monkey_bottom_up_throughput_and_bpk_collector, monkey_top_down_throughput_and_bpk_collector, mnemosyne_throughput_and_bpk_collector}, {"uniform", "monkey-bottom-up", "monkey-top-down", "mnemosyne"}, throughputPath, bpkPath, _env->throughput_collect_interval);
     //write_collected_throughput({monkey_bottom_up_throughput_and_bpk_collector, monkey_top_down_throughput_and_bpk_collector}, {"monkey-bottom-up", "monkey-top-down"}, throughputPath, bpkPath, _env->throughput_collect_interval);
     //write_collected_throughput({throughput_and_bpk_collector}, {"uniform"}, throughputPath, bpkPath, _env->throughput_collect_interval);
@@ -458,6 +547,14 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<std::string> query_stats_path_cmd(group4, "query_stats_path", "path for dumping query stats", {"qsp", "query-stats-path"});
   args::ValueFlag<int> num_levels_cmd(group1, "L", "The number of levels to fill up with data [def: -1]", {'L', "num_levels"});
 
+  args::Flag ebf_cmd(group4, "elasticbf", "Also run ElasticBF (Li et al., ATC'19)", {"ebf", "elasticbf"});
+  args::ValueFlag<double> ebf_unit_bpk_cmd(group4, "ebf_unit_bpk", "ElasticBF bits-per-key of one filter unit [def: = -b]", {"ebf_unit_bpk"});
+  args::ValueFlag<int> ebf_units_cmd(group4, "ebf_units", "ElasticBF number of filter units per segment [def: 6]", {"ebf_units"});
+  args::ValueFlag<long> ebf_seg_size_cmd(group4, "ebf_seg_size", "ElasticBF segment size in bytes [def: 4194304]", {"ebf_seg_size"});
+  args::ValueFlag<long> ebf_lifetime_cmd(group4, "ebf_lifetime", "ElasticBF lifeTime of the expiring policy in #Gets [def: 10000]", {"ebf_lifetime"});
+  args::Flag ebf_sync_load_cmd(group4, "ebf_sync_load", "ElasticBF: load units in the foreground instead of a background thread", {"ebf_sync_load"});
+  args::Flag ebf_no_inherit_cmd(group4, "ebf_no_inherit", "ElasticBF: disable hotness inheritance", {"ebf_no_inherit"});
+  args::Flag ebf_keep_bcc_cmd(group4, "ebf_keep_bcc", "ElasticBF: do not shrink the block cache by the filter-unit memory budget", {"ebf_keep_bcc"});
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
 
@@ -516,6 +613,14 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->print_sst_stat = print_sst_stat_cmd ? true : false;
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
   _env->dump_query_stats_filename = query_stats_path_cmd ? args::get(query_stats_path_cmd) : query_statsPath;
+  _env->run_elasticbf = ebf_cmd ? true : false;
+  _env->ebf_unit_bits_per_key = ebf_unit_bpk_cmd ? args::get(ebf_unit_bpk_cmd) : 0.0;
+  _env->ebf_num_units = ebf_units_cmd ? args::get(ebf_units_cmd) : 6;
+  _env->ebf_segment_size = ebf_seg_size_cmd ? args::get(ebf_seg_size_cmd) : (4l << 20);
+  _env->ebf_life_time = ebf_lifetime_cmd ? args::get(ebf_lifetime_cmd) : 10000;
+  _env->ebf_sync_load = ebf_sync_load_cmd ? true : false;
+  _env->ebf_no_inheritance = ebf_no_inherit_cmd ? true : false;
+  _env->ebf_keep_block_cache = ebf_keep_bcc_cmd ? true : false;
   _env->throughput_collect_interval = collect_throughput_interval_cmd ? args::get(collect_throughput_interval_cmd) : 0;
   throughputPath = throughput_path_cmd ? args::get(throughput_path_cmd) : "./throughputs.txt";
   bpkPath = bpk_path_cmd ? args::get(bpk_path_cmd) : "./tracked_avg_bpk.txt";

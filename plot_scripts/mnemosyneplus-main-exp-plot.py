@@ -28,7 +28,8 @@ def main(args):
         ['Monkey-bottom-up', 'tab:green', 'dashed', '^', 'Monkey (Bottom-Up)'],
         ['Monkey-top-down', 'purple', 'dotted', 'v', 'Monkey (Top-Down)'],
         ['Mnemosyne', 'blue', 'solid', 'p', 'Mnemosyne'],
-        ['Mnemosyne+', 'red', 'solid', 'x', 'Mnemosyne$^+$']
+        ['Mnemosyne+', 'red', 'solid', 'x', 'Mnemosyne$^+$'],
+        ['ElasticBF', 'tab:orange', 'solid', 'o', 'ElasticBF']
     ]
 
     for method in methods:

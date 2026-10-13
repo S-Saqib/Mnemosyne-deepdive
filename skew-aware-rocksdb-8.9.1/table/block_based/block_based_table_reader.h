@@ -19,6 +19,7 @@
 #include "file/filename.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table_properties.h"
+#include "table/block_based/elastic_bf.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_cache.h"
@@ -36,6 +37,7 @@
 #include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 
 class Cache;
 class FilterBlockReader;
@@ -506,6 +508,12 @@ class BlockBasedTable : public TableReader {
                                 InternalIteratorBase<IndexValue>* index_iter);
 
   // Create the filter from the filter block.
+  // ElasticBF: reads the raw contents of a filter unit / index block.
+  Status ReadElasticBFBlock(FilePrefetchBuffer* prefetch_buffer,
+                            const BlockHandle& handle, std::string* out) const;
+  Status SetupElasticBF(FilePrefetchBuffer* prefetch_buffer,
+                        InternalIterator* meta_iter, uint64_t file_number);
+
   std::unique_ptr<FilterBlockReader> CreateFilterBlockReader(
       const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
       bool use_cache, bool prefetch, bool pin,
@@ -592,6 +600,9 @@ struct BlockBasedTable::Rep {
   const InternalKeyComparator& internal_comparator;
   Status status;
   std::unique_ptr<RandomAccessFileReader> file;
+  // ElasticBF handle; must be destroyed before `file` (it may still be
+  // reading filter units), which BlockBasedTable::~BlockBasedTable ensures.
+  std::unique_ptr<ElasticBFTable> elastic_table;
   OffsetableCacheKey base_cache_key;
   PersistentCacheOptions persistent_cache_options;
 

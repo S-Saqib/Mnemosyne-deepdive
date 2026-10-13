@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/elastic_bf.h"
 
 #include <stdint.h>
 
@@ -439,6 +440,14 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     : table_options_(_table_options) {
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info);
+  if (table_options_.elastic_bf) {
+    // One ElasticBF manager per factory (i.e. per DB / column family). A
+    // manager passed in by the caller is not shared across factories.
+    table_options_.elastic_bf_manager =
+        std::make_shared<ElasticBFManager>(table_options_);
+  } else {
+    table_options_.elastic_bf_manager.reset();
+  }
 
   const auto table_reader_charged =
       table_options_.cache_usage_options.options_overrides

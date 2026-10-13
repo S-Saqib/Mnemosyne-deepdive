@@ -23,3 +23,7 @@ query_lat_exp
 runtime_tput_exp_debug
 query_lat_exp_debug
 
+elasticbf_test
+elasticbf_test_db*
+output-bpk-ebf*/
+agg_output_elasticbf/

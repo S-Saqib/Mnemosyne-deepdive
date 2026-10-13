@@ -56,6 +56,10 @@ void getNaiveMonkeyBitsPerKey(size_t num_ingestion, size_t num_entries_per_table
 
 // Other helper functions
 void printBFBitsPerKey(DB *db, ofstream &of);
+// ElasticBF helpers
+void configElasticBF(const EmuEnv* _env, BlockBasedTableOptions* table_op);
+void printElasticBFStats(const Options& op, ofstream &of);
+uint64_t getElasticBFBudgetBytes(const Options& op);
 
 void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, ofstream & of, uint16_t n = 1);
 

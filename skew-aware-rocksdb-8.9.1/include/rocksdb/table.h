@@ -33,6 +33,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
 class Cache;
+class ElasticBFManager;
 class FilterPolicy;
 class FlushBlockPolicyFactory;
 class PersistentCache;
@@ -452,6 +453,43 @@ struct BlockBasedTableOptions {
   double max_bits_per_key_granularity = 6.0;
   size_t max_modulars = 6;
   double est_filter_fraction_in_cache = 0.25;
+
+  // ---------------------------------------------------------------------
+  // ElasticBF (Li et al., "ElasticBF: Elastic Bloom Filter with Hotness
+  // Awareness for Boosting Read Performance in Large Key-Value Stores",
+  // USENIX ATC 2019). See ELASTICBF.md at the repository root.
+  //
+  // When `elastic_bf` is true, the regular (and modular) SST filters are NOT
+  // built. Instead every SST is cut into segments of ~`elastic_bf_segment_size`
+  // bytes of data blocks, and every segment gets a filter group of
+  // `elastic_bf_num_units` independent Bloom filter units of
+  // `elastic_bf_unit_bits_per_key` bits-per-key each, stored as separate blocks
+  // in the SST. A per-DB manager keeps, for every segment, a prefix of its
+  // units in memory, and moves units between segments at run time according
+  // to segment hotness (expiring policy + Multi-Queue + cost model), while the
+  // total memory of resident units stays within
+  // `elastic_bf_bits_per_key` x (number of keys).
+  bool elastic_bf = false;
+  // Memory budget expressed as bits-per-key over all keys (the "b" of a static
+  // configuration). 0 => use the bits-per-key of `filter_policy`.
+  double elastic_bf_bits_per_key = 0.0;
+  // Bits-per-key of a single filter unit. 0 => equal to the budget, i.e. one
+  // unit resident per segment by default (paper: 4 budget, 4 per unit).
+  double elastic_bf_unit_bits_per_key = 0.0;
+  // Number of filter units per segment (paper: 6).
+  uint32_t elastic_bf_num_units = 6;
+  // Size of a segment in bytes of data blocks (paper: 4 MB).
+  uint64_t elastic_bf_segment_size = 4ull << 20;
+  // lifeTime of the expiring policy, in number of Get requests (paper: 10K).
+  uint64_t elastic_bf_life_time = 10000;
+  // Load newly enabled units in a background thread (paper) instead of in the
+  // foreground of the Get that triggered the adjustment.
+  bool elastic_bf_async_load = true;
+  // Hotness inheritance for segments produced by compaction (paper Sec 3.3).
+  bool elastic_bf_hotness_inheritance = true;
+  // Created by the table factory when `elastic_bf` is true. Shared by all
+  // tables opened through that factory (i.e. one manager per DB / CF).
+  std::shared_ptr<ElasticBFManager> elastic_bf_manager = nullptr;
 
   // Option to generate Bloom/Ribbon filters that minimize memory
   // internal fragmentation.
