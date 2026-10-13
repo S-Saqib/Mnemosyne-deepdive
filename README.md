@@ -17,9 +17,10 @@ The repository is structured as follows:
 
 The modified RocksDB also implements **ElasticBF** (Li et al., USENIX ATC 2019),
 so that it can be compared with RocksDB, Mnemosyne and Mnemosyne+ on the same
-workloads: add `--ebf` to `query_lat_exp` or `runtime_tput_exp`, or run
-`exp-scripts/fig12-elasticbf.sh`. See [ELASTICBF.md](ELASTICBF.md) for the
-design, the flags, and the assumptions made where the paper is not explicit.
+workloads: `exp-scripts/fig12.sh` runs it as part of Figure 12, and `--ebf`
+adds it to any other `query_lat_exp` or `runtime_tput_exp` run. See
+[ELASTICBF.md](ELASTICBF.md) for the design, the flags, and the assumptions
+made where the paper is not explicit.
 
 
 ## Hardware and Software Environment
@@ -212,8 +213,8 @@ Below are the details for each script.
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig12.sh
     ```
     You can directly set the number of runs in `fig12.sh` by specifying the variable `RUNS`, just like `fig4.sh`.
-    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction (the `--monkey` flag of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`).
-    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version that takes roughly 10 minutes, but its numbers are not comparable to the paper.
+    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction and ElasticBF (the `--monkey` and `--ebf` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). No other figure runs them. With six methods instead of three, this experiment takes roughly twice as long as the paper's version and keeps six copies of the database on the fast SSD.
+    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version (ElasticBF's segment size and lifeTime are scaled down as well) that takes roughly 12 minutes, but its numbers are not comparable to the paper.
 
 7. `fig13-14.sh`: Measures the query latency and the number of read bytes for workload type II using a slower SSD.
     ```

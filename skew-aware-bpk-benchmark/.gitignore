@@ -25,5 +25,3 @@ query_lat_exp_debug
 
 elasticbf_test
 elasticbf_test_db*
-output-bpk-ebf*/
-agg_output_elasticbf/

@@ -29,8 +29,8 @@ cd skew-aware-bpk-benchmark && ./elasticbf_test /path/on/ssd/ebf_test_db
   -B 32 -P 1024 -b 4 --BCC 524288 -V 1 --dr \
   --ebf --run-stats-op output.txt
 
-# 4. Fig. 12 of the Mnemosyne paper with ElasticBF as a 4th line
-cd ../exp-scripts && DB_HOME=${FAST_DB_HOME} ./fig12-elasticbf.sh
+# 4. Fig. 12 of the Mnemosyne paper, which includes ElasticBF (and Monkey)
+cd ../exp-scripts && FAST_DB_HOME=/path/on/ssd/db_working_home ./fig12.sh
 ```
 
 `--ebf` adds an ElasticBF run after RocksDB, Mnemosyne and Mnemosyne+ (without
@@ -53,18 +53,18 @@ by the ElasticBF statistics (units per queue, promotions, unit-load I/O, ...).
 
 Scripts:
 
-* `skew-aware-bpk-benchmark/exp_query_lat_elasticbf.sh`: the Fig. 12 sweep
-  (Z x ZD x bpk) with `--ebf`; ElasticBF knobs via `EBF_SEG_SIZE`, `EBF_UNITS`,
-  `EBF_UNIT_BPK`, `EBF_LIFETIME`, `EBF_EXTRA_FLAGS`.
-* `skew-aware-bpk-benchmark/main_query_lat_elasticbf.sh <runs>`: generates the
-  workloads, runs the sweep and aggregates into `agg_output_elasticbf/`.
-* `exp-scripts/fig12-elasticbf.sh`: the above plus the plots
-  (`exp-figures/Fig12-elasticbf-*.pdf`, ElasticBF in orange).
+* `skew-aware-bpk-benchmark/exp_query_lat.sh`: the Fig. 12 sweep
+  (Z x ZD x bpk), which passes `--ebf`; ElasticBF knobs via `EBF_SEG_SIZE`,
+  `EBF_UNITS`, `EBF_UNIT_BPK`, `EBF_LIFETIME`, `EBF_EXTRA_FLAGS`. This is the
+  only experiment script that runs ElasticBF.
+* `exp-scripts/fig12.sh`: generates the workloads, runs the sweep, aggregates
+  into `agg_output/` and plots `exp-figures/Fig12-*.pdf` (ElasticBF in orange).
+  With `QUICK=1` it also scales the segment size and lifeTime down.
 * `output/grep_*_by_bpk.sh` print an extra `ElasticBF` block when ElasticBF
   results exist, so the existing aggregation script works unchanged.
 * `runtime_tput_exp --ebf` adds ElasticBF to workload type I (Fig. 11); its
   tracked bits-per-key column is the bits-per-key of the units resident in
-  memory.
+  memory. The Fig. 11 script (`tput_exp.sh`) does not pass the flag.
 
 ## How the paper maps to the code
 

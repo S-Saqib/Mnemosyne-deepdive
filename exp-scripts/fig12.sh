@@ -7,7 +7,7 @@ ulimit -n 65535
 RUNS=1
 
 # QUICK=1 runs a ~1/1000 scale version of the experiment that takes roughly
-# 10 minutes. It only checks that the whole pipeline works: the database is ~11MB,
+# 12 minutes. It only checks that the whole pipeline works: the database is ~11MB,
 # so the numbers are not comparable to the paper.
 if [ "${QUICK:-0}" = "1" ]; then
 	# inserts, point queries and updates (workload_type_II.sh), then buffer size
