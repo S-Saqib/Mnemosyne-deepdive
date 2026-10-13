@@ -38,6 +38,7 @@ QueryTracker global_monkey_top_down_query_tracker;
 QueryTracker global_mnemosyne_query_tracker;
 QueryTracker global_mnemosyne_plus_query_tracker;
 QueryTracker global_elasticbf_query_tracker;
+QueryTracker global_shamba_query_tracker;
 
 
 
@@ -46,6 +47,7 @@ DB* db_monkey = nullptr;
 DB* db_mnemosyne = nullptr;
 DB* db_mnemosyne_plus = nullptr;
 DB* db_elasticbf = nullptr;
+DB* db_shamba = nullptr;
 ofstream running_stats_of;
 
 int T_DEFAULT = 2;
@@ -106,6 +108,10 @@ int main(int argc, char *argv[]) {
     running_stats_of << "==========================================================" << std::endl;
     printEmulationOutput(_env, &global_elasticbf_query_tracker, running_stats_of, _env->experiment_runs);
   }
+  if (_env->run_shamba) {
+    running_stats_of << "==========================================================" << std::endl;
+    printEmulationOutput(_env, &global_shamba_query_tracker, running_stats_of, _env->experiment_runs);
+  }
   
   running_stats_of << "===== Average stats of " << _env->experiment_runs << " runs ====="  << std::endl;
 
@@ -155,6 +161,10 @@ int runExperiments(EmuEnv* _env) {
       if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
       if (_env->run_elasticbf) {
         destroy_status = DestroyDB(_env->path + "-elasticbf", options);
+        if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
+      }
+      if (_env->run_shamba) {
+        destroy_status = DestroyDB(_env->path + "-shamba", options);
         if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
       }
     }
@@ -553,6 +563,75 @@ int runExperiments(EmuEnv* _env) {
       CloseDB(db_elasticbf, flush_options);
     }
 
+    // ------------------------------------------------------------------
+    // SHaMBa (Mun et al., ADMS'22): modular Bloom filters with utility-based
+    // module skipping. The database is ingested separately because its SST
+    // files store the filter as several modules.
+    // ------------------------------------------------------------------
+    if (_env->run_shamba) {
+      Options shamba_options = options;
+      shamba_options.create_if_missing = true;
+      shamba_options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
+      BlockBasedTableOptions shamba_table_options = table_options;
+      configShamba(_env, &shamba_options, &shamba_table_options);
+      if (_env->block_cache_capacity != 0) {
+        shamba_table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      }
+      shamba_options.table_factory.reset(NewBlockBasedTableFactory(shamba_table_options));
+      shamba_options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      s = DB::Open(shamba_options, _env->path + "-shamba", &db_shamba);
+      if (!s.ok()) std::cerr << s.ToString() << std::endl;
+      assert(s.ok());
+      ingestion_query_track = new QueryTracker();
+      std::cout << "Ingestiing workload (purely inserts) with SHaMBa..." << std::endl;
+      runWorkload(db_shamba, _env, &shamba_options, &shamba_table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
+      s = ReopenDB(db_shamba, shamba_options, flush_options);
+      if (!s.ok()) std::cerr << s.ToString() << std::endl;
+      get_iostats_context()->Reset();
+      get_perf_context()->Reset();
+      get_perf_context()->ClearPerLevelPerfContext();
+      get_perf_context()->EnablePerLevelPerfContext();
+      SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
+      QueryTracker *shamba_query_track = new QueryTracker();
+      db_shamba->GetOptions().statistics->Reset();
+      std::cout << "Executing workload (containing mixed operations) with SHaMBa..." << std::endl;
+      runWorkload(db_shamba, _env, &shamba_options, &shamba_table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, shamba_query_track, running_stats_of);
+      SetPerfLevel(kDisable);
+      populateQueryTracker(shamba_query_track, db_shamba, shamba_table_options, _env, running_stats_of);
+      dumpStats(&global_shamba_query_tracker, shamba_query_track);
+      if (_env->verbosity > 1) {
+        std::string state;
+        db_shamba->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+        running_stats_of << state << std::endl;
+      }
+      bloom_false_positives = shamba_query_track->bloom_sst_hit_count - shamba_query_track->bloom_sst_true_positive_count;
+      running_stats_of << "accessed data blocks (shamba): " << shamba_query_track->data_block_read_count << std::endl;
+      running_stats_of << "read bytes (shamba): " << shamba_query_track->bytes_read << std::endl;
+      running_stats_of << "overall false positives (shamba): " << bloom_false_positives << std::endl;
+      running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (shamba): " <<
+        bloom_false_positives*100.0/(bloom_false_positives + shamba_query_track->bloom_sst_miss_count) << "%" << std::endl;
+      if (shamba_query_track->point_lookups_completed + shamba_query_track->zero_point_lookups_completed > 0) {
+        running_stats_of << std::fixed << std::setprecision(6) << "point query latency (shamba): " <<  static_cast<double>(shamba_query_track->point_lookups_cost +
+        shamba_query_track->zero_point_lookups_cost)/(shamba_query_track->point_lookups_completed + shamba_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+      }
+      if (shamba_query_track->total_completed > 0) {
+        running_stats_of << std::fixed << std::setprecision(6) << "avg operation latency (shamba): " <<  static_cast<double>(shamba_query_track->workload_exec_time)/shamba_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
+      }
+      if (shamba_query_track->inserts_completed + shamba_query_track->updates_completed + shamba_query_track->point_deletes_completed > 0) {
+        running_stats_of << std::fixed << std::setprecision(6) << "ingestion latency (shamba): " <<  static_cast<double>(shamba_query_track->inserts_cost +
+        shamba_query_track->updates_cost + shamba_query_track->point_deletes_cost)/(shamba_query_track->inserts_completed + shamba_query_track->updates_completed + shamba_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+      }
+      // lookups on a file for which SHaMBa skipped the whole filter
+      running_stats_of << "shamba whole filter skipped times: " << get_perf_context()->num_skipped_times << std::endl;
+      s = BackgroundJobMayAllCompelte(db_shamba);
+      printBFBitsPerKey(db_shamba, running_stats_of);
+      delete shamba_query_track;
+      delete ingestion_query_track;
+      ingestion_query_track = NULL;
+      get_perf_context()->ClearPerLevelPerfContext();
+      CloseDB(db_shamba, flush_options);
+    }
+
     running_stats_of << "End of experiment run: " << i+1 << std::endl;
     running_stats_of << std::endl;
 
@@ -617,6 +696,11 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::Flag ebf_sync_load_cmd(group4, "ebf_sync_load", "ElasticBF: load units in the foreground instead of a background thread", {"ebf_sync_load"});
   args::Flag ebf_no_inherit_cmd(group4, "ebf_no_inherit", "ElasticBF: disable hotness inheritance", {"ebf_no_inherit"});
   args::Flag ebf_keep_bcc_cmd(group4, "ebf_keep_bcc", "ElasticBF: do not shrink the block cache by the filter-unit memory budget", {"ebf_keep_bcc"});
+  args::Flag shamba_cmd(group4, "shamba", "Also run SHaMBa (Mun et al., ADMS'22)", {"shamba"});
+  args::ValueFlag<int> shamba_modules_cmd(group4, "shamba_modules", "SHaMBa number of equal-sized filter modules per file [def: 2]", {"shamba_modules"});
+  args::ValueFlag<std::string> shamba_skip_cmd(group4, "shamba_skip", "SHaMBa module skipping: none (SHaMBa-eq), P (may skip the modules after the first one) or F (may also skip the whole filter) [def: P]", {"shamba_skip"});
+  args::ValueFlag<double> shamba_th1_cmd(group4, "shamba_th1", "SHaMBa utility threshold below which the whole filter is skipped [def: 0.01]", {"shamba_th1"});
+  args::ValueFlag<double> shamba_th2_cmd(group4, "shamba_th2", "SHaMBa utility threshold below which the modules after the first one are skipped [def: 0.02]", {"shamba_th2"});
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
 
@@ -681,6 +765,15 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->ebf_sync_load = ebf_sync_load_cmd ? true : false;
   _env->ebf_no_inheritance = ebf_no_inherit_cmd ? true : false;
   _env->ebf_keep_block_cache = ebf_keep_bcc_cmd ? true : false;
+  _env->run_shamba = shamba_cmd ? true : false;
+  _env->shamba_num_modules = shamba_modules_cmd ? args::get(shamba_modules_cmd) : 2;
+  _env->shamba_skipping = shamba_skip_cmd ? args::get(shamba_skip_cmd) : "P";
+  if (_env->shamba_skipping != "none" && _env->shamba_skipping != "P" && _env->shamba_skipping != "F") {
+    std::cerr << "--shamba_skip must be none, P or F" << std::endl;
+    return 1;
+  }
+  _env->shamba_util_threshold_1 = shamba_th1_cmd ? args::get(shamba_th1_cmd) : 0.01;
+  _env->shamba_util_threshold_2 = shamba_th2_cmd ? args::get(shamba_th2_cmd) : 0.02;
 
   std::string output_path = running_stats_output_path_cmd ? args::get(running_stats_output_path_cmd) : "./output_stats.txt";
   running_stats_of.open(output_path.c_str());

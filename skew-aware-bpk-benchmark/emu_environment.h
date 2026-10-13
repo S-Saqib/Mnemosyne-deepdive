@@ -92,6 +92,13 @@ public:
   bool ebf_no_inheritance = false;      // --ebf_no_inherit
   bool ebf_keep_block_cache = false;    // --ebf_keep_bcc : do not shrink cache
 
+  // SHaMBa (Mun et al., ADMS'22) -- see ../SHAMBA.md
+  bool run_shamba = false;                // --shamba : also run SHaMBa
+  uint32_t shamba_num_modules = 2;        // --shamba_modules
+  string shamba_skipping = "P";           // --shamba_skip : none, P or F
+  double shamba_util_threshold_1 = 0.01;  // --shamba_th1 (whole filter)
+  double shamba_util_threshold_2 = 0.02;  // --shamba_th2 (modules after the first)
+
   bool print_sst_stat;              // ps | print sst stats
   bool dump_query_stats;
   string dump_query_stats_filename;

@@ -133,6 +133,12 @@ enum BitsPerKeyAllocationType : char {
   kMnemosyneBpkAlloc = 0x3,
   // MnemosynePlus: workload-aware allocation, requires accurate statistics
   kMnemosynePlusBpkAlloc = 0x4,
+  // SHaMBa (Mun et al., "LSM-Trees Under (Memory) Pressure", ADMS 2022):
+  // every file gets the same bits-per-key, split into equal-sized modules,
+  // and each lookup decides from the file's statistics which modules to use.
+  // Requires `modular_filters` and PointReadsTrackMethod::kNaiiveTrack. See
+  // the `shamba_*` options below and SHAMBA.md at the repository root.
+  kShambaBpkAlloc = 0x5,
 };
 
 struct HashDigest {
@@ -453,6 +459,24 @@ struct BlockBasedTableOptions {
   double max_bits_per_key_granularity = 6.0;
   size_t max_modulars = 6;
   double est_filter_fraction_in_cache = 0.25;
+
+  // ---------------------------------------------------------------------
+  // SHaMBa module skipping, only used with bpk_alloc_type == kShambaBpkAlloc.
+  // With alpha = the fraction of the file's point reads that found the key and
+  // beta = the fraction of all point lookups that reached the file, a lookup
+  //  - skips the whole filter if `shamba_allow_whole_filter_skipping` and
+  //    beta * (1 - alpha) * (1 - fpr(first module)) < shamba_util_threshold_1
+  //  - otherwise skips all modules but the first one if
+  //    beta * (1 - alpha) * (fpr(first module) - fpr(all modules))
+  //    < shamba_util_threshold_2, unless `shamba_require_all_modules`.
+  // The names and the default thresholds follow the released SHaMBa code
+  // (require_all_modules, allow_whole_filter_skipping, util_threshold_1/2).
+  // SHaMBa-eq: require_all_modules; SHaMBa-eq-P: neither flag;
+  // SHaMBa-eq-F: allow_whole_filter_skipping.
+  bool shamba_require_all_modules = false;
+  bool shamba_allow_whole_filter_skipping = false;
+  double shamba_util_threshold_1 = 0.01;
+  double shamba_util_threshold_2 = 0.02;
 
   // ---------------------------------------------------------------------
   // ElasticBF (Li et al., "ElasticBF: Elastic Bloom Filter with Hotness

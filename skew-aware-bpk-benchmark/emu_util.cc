@@ -1632,3 +1632,28 @@ uint64_t getElasticBFBudgetBytes(const Options& op) {
   if (!s.ok()) return 0;
   return static_cast<uint64_t>(st.budget_bits / 8.0);
 }
+
+
+// ---------------------------------------------------------------------------
+// SHaMBa (Mun et al., ADMS'22). See ../SHAMBA.md for how it maps to the code
+// and for the assumptions made.
+// ---------------------------------------------------------------------------
+void configShamba(const EmuEnv* _env, Options* op, BlockBasedTableOptions* table_op) {
+  // SHaMBa-eq: the same bits-per-key for every file, split into equal-sized
+  // modules. Mnemosyne's reallocation and ElasticBF are disabled.
+  table_op->bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kShambaBpkAlloc;
+  table_op->modular_filters = true;
+  table_op->no_filter_optimize_for_level0 = false;
+  table_op->max_modulars = std::max<uint32_t>(1, _env->shamba_num_modules);
+  table_op->max_bits_per_key_granularity = _env->bits_per_key / table_op->max_modulars;
+  table_op->elastic_bf = false;
+  // skipping policy: none (SHaMBa-eq), P (may skip the modules after the first
+  // one) or F (may also skip the whole filter)
+  table_op->shamba_require_all_modules = (_env->shamba_skipping == "none");
+  table_op->shamba_allow_whole_filter_skipping = (_env->shamba_skipping == "F");
+  table_op->shamba_util_threshold_1 = _env->shamba_util_threshold_1;
+  table_op->shamba_util_threshold_2 = _env->shamba_util_threshold_2;
+  // the utility of a module is computed from the number of point reads and of
+  // existing point reads of each file
+  op->point_reads_track_method = rocksdb::PointReadsTrackMethod::kNaiiveTrack;
+}

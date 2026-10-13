@@ -366,7 +366,8 @@ std::unordered_map<std::string, BitsPerKeyAllocationType>
         {"kDefaultBpkAlloc", kDefaultBpkAlloc},
         {"kNaiveMonkeyBpkAlloc", kNaiveMonkeyBpkAlloc},
         {"kMnemosyneBpkAlloc", kMnemosyneBpkAlloc},
-        {"kMnemosynePlusBpkAlloc", kMnemosynePlusBpkAlloc}};
+        {"kMnemosynePlusBpkAlloc", kMnemosynePlusBpkAlloc},
+        {"kShambaBpkAlloc", kShambaBpkAlloc}};
 
 std::unordered_map<std::string, CompressionType>
     OptionsHelper::compression_type_string_map = {

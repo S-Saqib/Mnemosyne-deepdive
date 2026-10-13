@@ -682,6 +682,15 @@ class VersionStorageInfo {
     return accumulated_num_point_reads_.load(std::memory_order_relaxed);
   }
 
+  // SHaMBa: number of point lookups that reached the SST files, i.e. the
+  // denominator of the access frequency (beta) of each file
+  uint64_t GetShambaNumPointLookups() const {
+    return shamba_num_point_lookups_.load(std::memory_order_relaxed);
+  }
+  void IncShambaNumPointLookups() const {
+    shamba_num_point_lookups_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   uint64_t GetAccumulatedNumExistingPointReads() const {
     return accumulated_num_existing_point_reads_.load(
         std::memory_order_relaxed);
@@ -872,6 +881,7 @@ class VersionStorageInfo {
   mutable double avg_num_point_reads_per_lvl0_file_;
   mutable std::atomic<uint64_t> accumulated_num_existing_point_reads_;
   mutable std::atomic<uint64_t> accumulated_num_empty_point_reads_by_file_;
+  mutable std::atomic<uint64_t> shamba_num_point_lookups_;
   mutable uint64_t point_reads_num_when_last_flush_ = 0;
   mutable std::atomic<uint64_t> num_flushes_ = 0;
   // mutable std::atomic<uint64_t> skipped_filter_size_ = 0;
@@ -1199,6 +1209,9 @@ class Version {
   bool IsFilterSkipped(int level, bool is_file_last_in_level = false,
                        const FileMetaData* meta = nullptr,
                        uint8_t* max_accessed_modulars = nullptr);
+  // SHaMBa's utility-based module skipping (kShambaBpkAlloc)
+  bool IsFilterSkippedByShamba(const FileMetaData* meta,
+                               uint8_t* max_accessed_modulars);
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_meta from its associated TableProperties.
@@ -1268,6 +1281,12 @@ class Version {
   uint64_t max_modulars_in_cache_shrunk_by_entry_size_;
   size_t data_block_size_;
   uint32_t max_modulars_;
+  // for SHaMBa's module skipping
+  bool shamba_;
+  bool shamba_require_all_modules_;
+  bool shamba_allow_whole_filter_skipping_;
+  double shamba_util_threshold_1_;
+  double shamba_util_threshold_2_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options,

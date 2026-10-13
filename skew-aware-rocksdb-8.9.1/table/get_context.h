@@ -194,6 +194,10 @@ class GetContext {
   HashDigest hash_digest_;
   bool filter_second_high_priority_cache_ = false;
   uint8_t max_accessed_modulars_ = 1;
+  // SHaMBa: modules from max_accessed_modulars_ on are not consulted at all
+  // (instead of only when cached), and only the first module is cached with
+  // high priority
+  bool shamba_module_skipping_ = false;
 
  private:
   // Helper method that postprocesses the results of merge operations, e.g. it

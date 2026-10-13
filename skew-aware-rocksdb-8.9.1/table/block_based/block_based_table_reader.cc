@@ -2423,6 +2423,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   while (!use_elastic_bf) {
     if (!tmp_no_io &&
         modular_filter_index >= get_context->max_accessed_modulars_) {
+      if (get_context->shamba_module_skipping_) break;
       tmp_no_io = true;
     }
     may_match = FullFilterKeyMayMatch(filter, key, tmp_no_io, prefix_extractor,
@@ -2434,7 +2435,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       get_context->hash_digest_ =
           NextHashDigest(origin_hash_digest, modular_filter_index);
       get_context->filter_second_high_priority_cache_ =
-          modular_filter_index >= get_context->max_accessed_modulars_;
+          modular_filter_index >= get_context->max_accessed_modulars_ ||
+          get_context->shamba_module_skipping_;
       filter = rep_->modular_filter->at(modular_filter_index).get();
     } else {
       break;

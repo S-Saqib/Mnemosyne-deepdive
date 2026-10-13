@@ -25,6 +25,13 @@ fi
 if [ -n "${EBF_EXTRA_FLAGS}" ]; then
 	EBF_FLAGS="${EBF_FLAGS} ${EBF_EXTRA_FLAGS}"
 fi
+# SHaMBa knobs (see ../SHAMBA.md), which can be overridden from the environment.
+# SHAMBA_SKIP is none, P or F.
+SHAMBA_MODULES="${SHAMBA_MODULES:-2}"
+SHAMBA_SKIP="${SHAMBA_SKIP:-P}"
+SHAMBA_TH1="${SHAMBA_TH1:-0.01}"
+SHAMBA_TH2="${SHAMBA_TH2:-0.02}"
+SHAMBA_FLAGS="--shamba --shamba_modules ${SHAMBA_MODULES} --shamba_skip ${SHAMBA_SKIP} --shamba_th1 ${SHAMBA_TH1} --shamba_th2 ${SHAMBA_TH2}"
 mkdir -p "${OUTPUT_DIR}"
 #ulimit -n 65535
 for ZD in ${ZD_list[@]}
@@ -33,13 +40,14 @@ do
 	do
 		for bpk in ${bpk_list[@]}
 		do
-			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --monkey ${EBF_FLAGS} --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
-			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --monkey ${EBF_FLAGS} --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --monkey ${EBF_FLAGS} ${SHAMBA_FLAGS} --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
+			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --monkey ${EBF_FLAGS} ${SHAMBA_FLAGS} --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
 			rm ${DB_HOME}-monkey-bottom-up/*
 			rm ${DB_HOME}-monkey-top-down/*
 			rm ${DB_HOME}-mnemosyne/*
 			rm ${DB_HOME}-mnemosyne-plus/*
 			rm ${DB_HOME}-elasticbf/*
+			rm ${DB_HOME}-shamba/*
 		done
 		cd ${OUTPUT_DIR}/
 		echo "../output/grep_accessed_data_blocks_by_bpk.sh ${ZD} ${Z} > accessed_data_blocks_ZD${ZD}_Z${Z}_result.txt"

@@ -26,3 +26,9 @@ if [ -n "${ebf_lines}" ]; then
 echo "ElasticBF"
 echo "${ebf_lines}" | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
 fi
+# SHaMBa block, only printed when SHaMBa was run (query_lat_exp --shamba)
+shamba_lines=$(grep "accessed data blocks (shamba):" *output.txt 2>/dev/null | grep ${str})
+if [ -n "${shamba_lines}" ]; then
+echo "SHaMBa"
+echo "${shamba_lines}" | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
+fi

@@ -2261,6 +2261,7 @@ VersionStorageInfo::VersionStorageInfo(
       avg_num_point_reads_per_lvl0_file_(0.0),
       accumulated_num_existing_point_reads_(0),
       accumulated_num_empty_point_reads_by_file_(0),
+      shamba_num_point_lookups_(0),
       point_reads_num_when_last_flush_(0),
       num_flushes_(0),
       current_total_filter_size_(0),
@@ -2293,6 +2294,9 @@ VersionStorageInfo::VersionStorageInfo(
             std::memory_order_relaxed));
     accumulated_num_empty_point_reads_by_file_.store(
         ref_vstorage->accumulated_num_empty_point_reads_by_file_.load(
+            std::memory_order_relaxed));
+    shamba_num_point_lookups_.store(
+        ref_vstorage->shamba_num_point_lookups_.load(
             std::memory_order_relaxed));
     point_reads_num_when_last_flush_ =
         ref_vstorage->GetNumPointReadWhenLastFlush();
@@ -2377,6 +2381,11 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
   overall_bits_per_key_ = 0.0;
   max_bits_per_key_granularity_ = 0.0;
   max_modulars_ = 1;
+  shamba_ = false;
+  shamba_require_all_modules_ = false;
+  shamba_allow_whole_filter_skipping_ = false;
+  shamba_util_threshold_1_ = 0.0;
+  shamba_util_threshold_2_ = 0.0;
   if (cfd_ != nullptr && cfd_->ioptions() != nullptr) {
     if (cfd_->ioptions()->table_factory != nullptr) {
       if (strcmp(cfd_->ioptions()->table_factory->Name(),
@@ -2400,6 +2409,14 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
         }
         data_block_size_ = tbo.block_size;
         max_modulars_ = tbo.max_modulars;
+        shamba_ = tbo.modular_filters &&
+                  tbo.bpk_alloc_type ==
+                      BitsPerKeyAllocationType::kShambaBpkAlloc;
+        shamba_require_all_modules_ = tbo.shamba_require_all_modules;
+        shamba_allow_whole_filter_skipping_ =
+            tbo.shamba_allow_whole_filter_skipping;
+        shamba_util_threshold_1_ = tbo.shamba_util_threshold_1;
+        shamba_util_threshold_2_ = tbo.shamba_util_threshold_2;
       }
     }
   }
@@ -2626,6 +2643,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   FdWithKeyRange* f = fp.GetNextFile();
   if (update_query_stats_flag)
     storage_info_.accumulated_num_point_reads_.fetch_add(1);
+  if (shamba_) {
+    storage_info_.IncShambaNumPointLookups();
+    get_context.shamba_module_skipping_ = true;
+  }
   while (f != nullptr) {
     if (*max_covering_tombstone_seq > 0) {
       // The remaining files we look at will only contain covered keys, so we
@@ -3314,9 +3335,63 @@ Status Version::MultiGetAsync(
 }
 #endif
 
+// False positive rate of a Bloom filter with floor(bpk) bits per key and the
+// rounded optimal number of probes. For 2 to 10 bits per key this gives the
+// values of the table hard-coded in the SHaMBa code, which also treats a
+// module with less than 2 bits per key as useless.
+static double ShambaFalsePositiveRate(double bpk) {
+  const double b = std::floor(bpk);
+  if (b < 2.0) return 1.0;
+  const double k = std::round(b * std::log(2.0));
+  return std::pow(1.0 - std::exp(-k / b), k);
+}
+
+// Port of BlockBasedTable::GetModularFilterReadType() of the SHaMBa code
+// (rocksdb-mbf): decides from the statistics of the file whether a lookup uses
+// no module, only the first module, or all of them.
+bool Version::IsFilterSkippedByShamba(const FileMetaData* meta,
+                                      uint8_t* max_accessed_modulars) {
+  if (max_accessed_modulars) *max_accessed_modulars = max_modulars_;
+  // maintained by PointReadsTrackMethod::kNaiiveTrack
+  const uint64_t num_reads =
+      meta->stats.num_point_reads.load(std::memory_order_relaxed);
+  const uint64_t num_tps =
+      meta->stats.num_existing_point_reads.load(std::memory_order_relaxed);
+  const uint64_t num_lookups = storage_info_.GetShambaNumPointLookups();
+  if (num_reads == 0 || num_lookups == 0) {
+    // no statistics, use all the modules
+    return false;
+  }
+  const double alpha = std::min(1.0, num_tps * 1.0 / num_reads);
+  const double beta = num_reads * 1.0 / num_lookups;
+  const double total_bpk = overall_bits_per_key_;
+  // the first module as sized by BlockBasedTableBuilder::ResetFilterBitsPerKey
+  double first_bpk = max_bits_per_key_granularity_;
+  if (max_modulars_ <= 1 || first_bpk <= 0.0 || first_bpk + 1 >= total_bpk) {
+    first_bpk = total_bpk;
+  }
+  const double fp_first = ShambaFalsePositiveRate(first_bpk);
+
+  double util = beta * (1.0 - alpha) * (1.0 - fp_first);
+  if (shamba_allow_whole_filter_skipping_ && util < shamba_util_threshold_1_) {
+    if (max_accessed_modulars) *max_accessed_modulars = 0;
+    PERF_COUNTER_ADD(num_skipped_times, 1);
+    return true;
+  }
+  util = beta * (1.0 - alpha) *
+         (fp_first - ShambaFalsePositiveRate(total_bpk));
+  if (util < shamba_util_threshold_2_ && !shamba_require_all_modules_) {
+    if (max_accessed_modulars) *max_accessed_modulars = 1;
+  }
+  return false;
+}
+
 bool Version::IsFilterSkipped(int level, bool is_file_last_in_level,
                               const FileMetaData* meta,
                               uint8_t* max_accessed_modulars) {
+  if (shamba_ && meta != nullptr) {
+    return IsFilterSkippedByShamba(meta, max_accessed_modulars);
+  }
   // Reaching the bottom level implies misses at all upper levels, so we'll
   // skip checking the filters when we predict a hit.
   bool result = cfd_->ioptions()->optimize_filters_for_hits &&

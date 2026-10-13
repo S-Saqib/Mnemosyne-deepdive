@@ -60,6 +60,8 @@ void printBFBitsPerKey(DB *db, ofstream &of);
 void configElasticBF(const EmuEnv* _env, BlockBasedTableOptions* table_op);
 void printElasticBFStats(const Options& op, ofstream &of);
 uint64_t getElasticBFBudgetBytes(const Options& op);
+// SHaMBa helper
+void configShamba(const EmuEnv* _env, Options* op, BlockBasedTableOptions* table_op);
 
 void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, ofstream & of, uint16_t n = 1);
 

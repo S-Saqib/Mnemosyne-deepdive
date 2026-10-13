@@ -15,6 +15,12 @@ ifneq ($(USE_RTTI), 1)
 	CXXFLAGS += -fno-rtti
 endif
 
+# librocksdb.a ("make static_lib") is compiled with -DNDEBUG. The benchmarks
+# include internal RocksDB headers in which the layout of some classes depends
+# on NDEBUG (e.g., port::Mutex), so they have to be compiled with the same
+# setting; otherwise they can crash in unrelated places.
+CXXFLAGS += -DNDEBUG
+
 .PHONY: clean librocksdb
 
 all: bpk_benchmark query_lat_exp query_statistics_est_benchmark runtime_tput_exp elasticbf_test

@@ -11,6 +11,8 @@ const double log_2_squared = std::pow(std::log(2), 2);
 
 void BitsPerKeyAllocHelper::PrepareBpkAllocation(const Compaction* compaction) {
   if (bpk_alloc_type_ == BitsPerKeyAllocationType::kDefaultBpkAlloc) return;
+  // SHaMBa does not reallocate bits-per-key across files
+  if (bpk_alloc_type_ == BitsPerKeyAllocationType::kShambaBpkAlloc) return;
   if (bpk_alloc_type_ == BitsPerKeyAllocationType::kNaiveMonkeyBpkAlloc) {
     if (naive_monkey_bpk_list.size() == 0) return;
     int output_level = 0;
@@ -599,6 +601,12 @@ bool BitsPerKeyAllocHelper::IfNeedAllocateBitsPerKey(
     *bits_per_key = naive_monkey_bpk;
     return true;
   }
+  if (bpk_alloc_type_ == BitsPerKeyAllocationType::kShambaBpkAlloc) {
+    // every file keeps the overall bits-per-key; returning true makes the
+    // table builder split it into modules (ResetFilterBitsPerKey)
+    *bits_per_key = overall_bits_per_key_;
+    return true;
+  }
   uint64_t num_entries = meta.num_entries - meta.num_range_deletions;
   double tmp_bits_per_key = overall_bits_per_key_;
   double weight = 0.0;
@@ -747,7 +755,8 @@ bool BitsPerKeyAllocHelper::IfNeedAllocateBitsPerKey(
 
 void BitsPerKeyAllocHelper::UpdateAggStatistics(FileMetaData* file_meta) {
   if (bpk_alloc_type_ == BitsPerKeyAllocationType::kDefaultBpkAlloc ||
-      bpk_alloc_type_ == BitsPerKeyAllocationType::kNaiveMonkeyBpkAlloc) {
+      bpk_alloc_type_ == BitsPerKeyAllocationType::kNaiveMonkeyBpkAlloc ||
+      bpk_alloc_type_ == BitsPerKeyAllocationType::kShambaBpkAlloc) {
     agg_filter_size_ = 0;
     total_num_entries_ = 0;
     for (int level = 0; level < vstorage_->num_levels(); ++level) {
