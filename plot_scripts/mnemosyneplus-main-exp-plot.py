@@ -26,7 +26,8 @@ def main(args):
     methods = [
         ['uniform', 'black' , 'solid', 'D', 'RocksDB'],
         ['Mnemosyne', 'blue', 'solid', 'p', 'Mnemosyne'],
-        ['Mnemosyne+', 'red', 'solid', 'x', 'Mnemosyne$^+$']
+        ['Mnemosyne+', 'red', 'solid', 'x', 'Mnemosyne$^+$'],
+        ['ElasticBF', 'green', 'solid', 'o', 'ElasticBF']
     ]
 
     for method in methods:

@@ -81,6 +81,16 @@ public:
   long total_IOs;
   bool clean_caches_for_experiments;
  
+  // ElasticBF (Li et al., ATC'19) -- see ../ELASTICBF.md
+  bool run_elasticbf = false;           // --ebf : also run ElasticBF
+  double ebf_unit_bits_per_key = 0.0;   // --ebf_unit_bpk (0 => = bits_per_key)
+  uint32_t ebf_num_units = 6;           // --ebf_units
+  uint64_t ebf_segment_size = 4ull << 20; // --ebf_seg_size (bytes)
+  uint64_t ebf_life_time = 10000;       // --ebf_lifetime (#Gets)
+  bool ebf_sync_load = false;           // --ebf_sync_load
+  bool ebf_no_inheritance = false;      // --ebf_no_inherit
+  bool ebf_keep_block_cache = false;    // --ebf_keep_bcc : do not shrink cache
+
   bool print_sst_stat;              // ps | print sst stats
   bool dump_query_stats;
   string dump_query_stats_filename;

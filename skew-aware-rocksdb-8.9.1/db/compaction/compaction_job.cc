@@ -51,6 +51,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
+#include "table/block_based/elastic_bf.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
@@ -673,6 +674,25 @@ Status CompactionJob::Run() {
                         compaction_stats_.stats.cpu_micros);
 
   TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
+
+  // ElasticBF hotness inheritance (paper Sec 3.3): snapshot the hotness of
+  // the input segments before the output tables are opened (verified) below,
+  // so that output segments can inherit it when they are registered.
+  if (ElasticBFManager* ebf = GetElasticBFManager(
+          compact_->compaction->immutable_options()->table_factory.get())) {
+    std::vector<uint64_t> input_numbers, output_numbers;
+    for (const auto& level_inputs : *compact_->compaction->inputs()) {
+      for (const FileMetaData* f : level_inputs.files) {
+        input_numbers.push_back(f->fd.GetNumber());
+      }
+    }
+    for (const auto& state : compact_->sub_compact_states) {
+      for (const auto& output : state.GetOutputs()) {
+        output_numbers.push_back(output.meta.fd.GetNumber());
+      }
+    }
+    ebf->PrepareInheritance(input_numbers, output_numbers);
+  }
 
   // Check if any thread encountered an error during execution
   Status status;

@@ -150,6 +150,10 @@ class BlockBasedTableBuilder : public TableBuilder {
                                       const BlockHandle* handle);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
+  // ElasticBF
+  void ElasticBFAddKey(const Slice& user_key);
+  void ElasticBFMaybeCutSegment(bool force);
+  void WriteElasticBFBlocks(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,
                        BlockHandle* index_block_handle);
   void WritePropertiesBlock(MetaIndexBuilder* meta_index_builder);

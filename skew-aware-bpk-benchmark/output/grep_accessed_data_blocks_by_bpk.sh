@@ -13,3 +13,9 @@ echo "Mnemosyne"
 grep "used data blocks (mnemosyne):" *output.txt | grep ${str} | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
 echo "Mnemosyne+"
 grep "used data blocks (mnemosyne-plus):" *output.txt | grep ${str} | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
+# ElasticBF block, only printed when ElasticBF was run (query_lat_exp --ebf)
+ebf_lines=$(grep "used data blocks (elasticbf):" *output.txt 2>/dev/null | grep ${str})
+if [ -n "${ebf_lines}" ]; then
+echo "ElasticBF"
+echo "${ebf_lines}" | awk -F':|-' '{print $2";"$NF}' | awk -F'_|;' '{print $1,$NF}' | sort -g | awk '{print $2}'
+fi

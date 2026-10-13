@@ -42,6 +42,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/elastic_bf.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -367,6 +368,21 @@ struct BlockBasedTableBuilder::Rep {
 
   uint64_t all_except_first_modular_filter_block_size;
 
+  // ---- ElasticBF (see table/block_based/elastic_bf.h) ----
+  bool elastic_bf = false;
+  elastic_bf::Config elastic_cfg;
+  uint64_t elastic_seg_start_offset = 0;
+  std::vector<uint64_t> elastic_cur_hashes;  // key hashes of open segment
+  std::string elastic_cur_smallest;
+  std::string elastic_cur_largest;
+  struct ElasticBuiltSegment {
+    std::string smallest, largest;
+    uint64_t num_keys = 0;
+    std::vector<std::string> units;  // serialized filter units
+  };
+  std::vector<ElasticBuiltSegment> elastic_segments;
+  uint64_t elastic_tail_excluded_bytes = 0;
+
   // See class Footer
   uint32_t base_context_checksum;
 
@@ -546,7 +562,12 @@ struct BlockBasedTableBuilder::Rep {
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
           table_options, ts_sz, persist_user_defined_timestamps));
     }
-    if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
+    if (table_options.elastic_bf) {
+      // ElasticBF replaces the regular / modular SST filter.
+      filter_builder.reset();
+      elastic_bf = !tbo.skip_filters;
+      elastic_cfg = elastic_bf::ResolveConfig(table_options);
+    } else if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
       // skipping filter generation
       filter_builder.reset();
@@ -1013,6 +1034,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       assert(!r->data_block.empty());
       r->first_key_in_next_block = &key;
       Flush();
+      if (r->elastic_bf) {
+        ElasticBFMaybeCutSegment(/*force=*/false);
+      }
       if (r->state == Rep::State::kBuffered) {
         bool exceeds_buffer_limit =
             (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
@@ -1063,6 +1087,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
         HashDigest hash_digest{.bloom_hash = BloomHash(extracted_key),
                                .hash64 = GetSliceHash64(extracted_key),
                                .seed = DecodeFixed64(extracted_key.data())};
+        if (r->elastic_bf) {
+          ElasticBFAddKey(extracted_key);
+        }
         if (r->table_options.modular_filters) {
           size_t i = 0;
           HashDigest new_hash_digest = hash_digest;
@@ -1120,6 +1147,107 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     r->props.num_range_deletions++;
   } else if (value_type == kTypeMerge) {
     r->props.num_merge_operands++;
+  }
+}
+
+// ElasticBF: keys of the current segment are hashed once; units are built
+// when the segment is closed. A segment is closed at the first data-block
+// boundary at which it covers at least `elastic_bf_segment_size` bytes of
+// the file, so segments are made of whole data blocks.
+void BlockBasedTableBuilder::ElasticBFAddKey(const Slice& user_key) {
+  Rep* r = rep_;
+  if (!r->elastic_cur_hashes.empty()) {
+    // skip other versions of the same user key inside one segment
+    if (r->internal_comparator.user_comparator()->Compare(
+            user_key, Slice(r->elastic_cur_largest)) == 0) {
+      return;
+    }
+  } else {
+    r->elastic_cur_smallest.assign(user_key.data(), user_key.size());
+  }
+  r->elastic_cur_largest.assign(user_key.data(), user_key.size());
+  r->elastic_cur_hashes.push_back(elastic_bf::KeyHash(user_key));
+}
+
+void BlockBasedTableBuilder::ElasticBFMaybeCutSegment(bool force) {
+  Rep* r = rep_;
+  if (!r->elastic_bf) return;
+  if (r->elastic_cur_hashes.empty()) {
+    r->elastic_seg_start_offset = r->get_offset();
+    return;
+  }
+  if (!force && r->get_offset() - r->elastic_seg_start_offset <
+                    r->elastic_cfg.segment_size) {
+    return;
+  }
+  Rep::ElasticBuiltSegment seg;
+  seg.smallest = std::move(r->elastic_cur_smallest);
+  seg.largest = std::move(r->elastic_cur_largest);
+  seg.num_keys = r->elastic_cur_hashes.size();
+  seg.units.reserve(r->elastic_cfg.num_units);
+  for (uint32_t u = 0; u < r->elastic_cfg.num_units; u++) {
+    seg.units.push_back(elastic_bf::BuildUnit(
+        r->elastic_cur_hashes, u, r->elastic_cfg.unit_bits_per_key));
+  }
+  r->elastic_segments.push_back(std::move(seg));
+  r->elastic_cur_hashes.clear();
+  r->elastic_cur_smallest.clear();
+  r->elastic_cur_largest.clear();
+  r->elastic_seg_start_offset = r->get_offset();
+}
+
+// Writes all filter units and the segment index. Units are written in
+// decreasing unit index, so that the units loaded by default when a table is
+// opened (unit 0 .. default_units-1) are next to the other meta blocks and are
+// covered by the tail prefetch, while the other units are not (the same trick
+// Mnemosyne uses for its modular filters).
+void BlockBasedTableBuilder::WriteElasticBFBlocks(
+    MetaIndexBuilder* meta_index_builder) {
+  Rep* r = rep_;
+  if (!r->elastic_bf || r->elastic_segments.empty() || !ok()) return;
+  const uint32_t n = r->elastic_cfg.num_units;
+  elastic_bf::SegmentIndex index;
+  index.num_units = n;
+  index.unit_bits_per_key = r->elastic_cfg.unit_bits_per_key;
+  index.segments.resize(r->elastic_segments.size());
+  for (size_t i = 0; i < r->elastic_segments.size(); i++) {
+    index.segments[i].smallest = r->elastic_segments[i].smallest;
+    index.segments[i].largest = r->elastic_segments[i].largest;
+    index.segments[i].num_keys = r->elastic_segments[i].num_keys;
+    index.segments[i].units.resize(n);
+  }
+  const uint64_t units_start = r->get_offset();
+  uint64_t default_units_start = units_start;
+  for (uint32_t step = 0; step < n && ok(); step++) {
+    const uint32_t u = n - 1 - step;
+    if (u + 1 == r->elastic_cfg.default_units) {
+      default_units_start = r->get_offset();
+    }
+    for (size_t i = 0; i < r->elastic_segments.size() && ok(); i++) {
+      std::string& unit = r->elastic_segments[i].units[u];
+      r->props.filter_size += unit.size();
+      WriteMaybeCompressedBlock(unit, kNoCompression,
+                                &index.segments[i].units[u],
+                                BlockType::kFilter);
+      std::string().swap(unit);
+    }
+  }
+  if (r->elastic_cfg.default_units == 0) {
+    default_units_start = r->get_offset();
+  }
+  r->elastic_tail_excluded_bytes = default_units_start - units_start;
+  r->props.num_filter_entries = 0;
+  for (const auto& seg : index.segments) {
+    r->props.num_filter_entries += seg.num_keys;
+  }
+  if (!ok()) return;
+  std::string index_contents;
+  elastic_bf::EncodeIndex(index, &index_contents);
+  BlockHandle index_handle;
+  WriteMaybeCompressedBlock(index_contents, kNoCompression, &index_handle,
+                            BlockType::kFilter);
+  if (ok()) {
+    meta_index_builder->Add(elastic_bf::kIndexBlockName, index_handle);
   }
 }
 
@@ -1373,7 +1501,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         r->props.num_modules_for_modular_filters != 0) {
       s = r->modular_filter_builders[modular_filter_index]
               ->MaybePostVerifyFilter(block_contents);
-    } else {
+    } else if (r->filter_builder != nullptr) {
+      // (ElasticBF filter units are written without a filter builder)
       s = r->filter_builder->MaybePostVerifyFilter(block_contents);
     }
 
@@ -2109,6 +2238,9 @@ Status BlockBasedTableBuilder::Finish() {
   if (r->state == Rep::State::kBuffered) {
     EnterUnbuffered();
   }
+  if (r->elastic_bf) {
+    ElasticBFMaybeCutSegment(/*force=*/true);
+  }
   if (r->IsParallelCompressionEnabled()) {
     StopParallelCompression();
 #ifndef NDEBUG
@@ -2138,6 +2270,7 @@ Status BlockBasedTableBuilder::Finish() {
   BlockHandle metaindex_block_handle, index_block_handle;
   MetaIndexBuilder meta_index_builder;
   WriteFilterBlock(&meta_index_builder);
+  WriteElasticBFBlocks(&meta_index_builder);
   WriteIndexBlock(&meta_index_builder, &index_block_handle);
   WriteCompressionDictBlock(&meta_index_builder);
   WriteRangeDelBlock(&meta_index_builder);
@@ -2155,6 +2288,10 @@ Status BlockBasedTableBuilder::Finish() {
   if (r->all_except_first_modular_filter_block_size > 0 &&
       r->all_except_first_modular_filter_block_size < r->tail_size) {
     r->tail_size -= r->all_except_first_modular_filter_block_size;
+  }
+  if (r->elastic_tail_excluded_bytes > 0 &&
+      r->elastic_tail_excluded_bytes < r->tail_size) {
+    r->tail_size -= r->elastic_tail_excluded_bytes;
   }
 
   Status ret_status = r->CopyStatus();

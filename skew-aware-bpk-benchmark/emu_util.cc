@@ -13,6 +13,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/elastic_bf.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
@@ -126,6 +127,13 @@ void resetPointReadsStats(DB* db) {
 }
 
 double getCurrentAverageBitsPerKey(DB* db, const Options *op) {
+  // ElasticBF: report the bits-per-key of the filter units resident in memory
+  // (the on-disk filter size covers all units of every segment).
+  ElasticBFStatistics ebf_stats;
+  if (op != nullptr &&
+      GetElasticBFStatistics(op->table_factory.get(), &ebf_stats).ok()) {
+    return ebf_stats.EffectiveBitsPerKey();
+  }
   auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
   const auto* vstorage = cfd->current()->storage_info();
 
@@ -1582,4 +1590,45 @@ std::vector<std::string> StringSplit(std::string &str, char delim){
     splits.push_back(item);
   }
   return splits;
+}
+
+
+// ---------------------------------------------------------------------------
+// ElasticBF (Li et al., USENIX ATC'19). See ../ELASTICBF.md for the design and
+// the assumptions made where the paper is not explicit.
+// ---------------------------------------------------------------------------
+void configElasticBF(const EmuEnv* _env, BlockBasedTableOptions* table_op) {
+  // ElasticBF replaces the per-SST filter; Mnemosyne features are disabled so
+  // that the comparison isolates the filter-allocation policy.
+  table_op->bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kDefaultBpkAlloc;
+  table_op->modular_filters = false;
+  table_op->filter_policy.reset();
+  table_op->elastic_bf = true;
+  table_op->elastic_bf_bits_per_key = _env->bits_per_key;  // memory budget
+  table_op->elastic_bf_unit_bits_per_key = _env->ebf_unit_bits_per_key;
+  table_op->elastic_bf_num_units = _env->ebf_num_units;
+  table_op->elastic_bf_segment_size = _env->ebf_segment_size;
+  table_op->elastic_bf_life_time = _env->ebf_life_time;
+  table_op->elastic_bf_async_load = !_env->ebf_sync_load;
+  table_op->elastic_bf_hotness_inheritance = !_env->ebf_no_inheritance;
+  table_op->elastic_bf_manager.reset();
+}
+
+void printElasticBFStats(const Options& op, ofstream &of) {
+  ElasticBFStatistics st;
+  Status s = GetElasticBFStatistics(op.table_factory.get(), &st);
+  if (!s.ok()) {
+    of << "ElasticBF statistics unavailable: " << s.ToString() << std::endl;
+    return;
+  }
+  of << st.ToString();
+  of << "elasticbf effective bits-per-key: " << st.EffectiveBitsPerKey() << std::endl;
+  of << "elasticbf unit load bytes: " << st.unit_load_bytes << std::endl;
+}
+
+uint64_t getElasticBFBudgetBytes(const Options& op) {
+  ElasticBFStatistics st;
+  Status s = GetElasticBFStatistics(op.table_factory.get(), &st);
+  if (!s.ok()) return 0;
+  return static_cast<uint64_t>(st.budget_bits / 8.0);
 }

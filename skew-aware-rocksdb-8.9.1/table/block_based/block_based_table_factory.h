@@ -85,6 +85,12 @@ class BlockBasedTableFactory : public TableFactory {
     return table_options_;
   }
 
+  // ElasticBF manager shared by all tables of this factory (nullptr if
+  // ElasticBF is disabled).
+  ElasticBFManager* elastic_bf_manager() const {
+    return table_options_.elastic_bf_manager.get();
+  }
+
  protected:
   const void* GetOptionsPtr(const std::string& name) const override;
   Status ParseOption(const ConfigOptions& config_options,

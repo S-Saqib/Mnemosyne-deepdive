@@ -85,6 +85,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/elastic_bf.h"
 #include "table/get_context.h"
 #include "table/merging_iterator.h"
 #include "table/multiget_context.h"
@@ -2187,6 +2188,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
   auto cfd = cfh->cfd();
+
+  // ElasticBF: currentTime = number of Get requests (paper Sec 3.3)
+  if (ElasticBFManager* ebf =
+          GetElasticBFManager(cfd->ioptions()->table_factory.get())) {
+    ebf->Tick();
+  }
 
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
