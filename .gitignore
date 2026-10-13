@@ -1,3 +1,4 @@
 workload_generator_scripts/*.txt
 rocksdb-8.9.1/
 v8.9.1*
+*.pdf
