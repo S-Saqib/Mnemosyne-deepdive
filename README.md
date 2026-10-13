@@ -22,6 +22,15 @@ adds it to any other `query_lat_exp` or `runtime_tput_exp` run. See
 [ELASTICBF.md](ELASTICBF.md) for the design, the flags, and the assumptions
 made where the paper is not explicit.
 
+### SHaMBa (added)
+
+The modified RocksDB also contains a port of **SHaMBa** (Mun et al., ADMS
+2022), which splits the Bloom filter of each file into modules and lets a
+lookup skip modules that are not useful: `exp-scripts/fig12.sh` runs it as part
+of Figure 12, and `--shamba` adds it to any other `query_lat_exp` run. See
+[SHAMBA.md](SHAMBA.md) for how it maps to the code, the flags, and the
+differences from the released SHaMBa code.
+
 
 ## Hardware and Software Environment
 
@@ -213,8 +222,8 @@ Below are the details for each script.
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig12.sh
     ```
     You can directly set the number of runs in `fig12.sh` by specifying the variable `RUNS`, just like `fig4.sh`.
-    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction and ElasticBF (the `--monkey` and `--ebf` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). No other figure runs them. It also sweeps the bits-per-key from 2 to 12 instead of the paper's 2 to 7 (`bpk_list` in the same script). With six methods instead of three and 11 bits-per-key values instead of 6, this experiment takes roughly four times as long as the paper's version and keeps six copies of the database on the fast SSD.
-    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version (ElasticBF's segment size and lifeTime are scaled down as well) that takes roughly 20 minutes, but its numbers are not comparable to the paper.
+    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction, ElasticBF and SHaMBa (the `--monkey`, `--ebf` and `--shamba` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). SHaMBa runs with two modules per file and may skip the second one; `SHAMBA_SKIP=none` or `SHAMBA_SKIP=F` in front of the command selects the other two variants (see [SHAMBA.md](SHAMBA.md)). No other figure runs them. It also sweeps the bits-per-key from 2 to 12 instead of the paper's 2 to 7 (`bpk_list` in the same script). With seven methods instead of three and 11 bits-per-key values instead of 6, this experiment takes roughly four and a half times as long as the paper's version and keeps seven copies of the database on the fast SSD.
+    To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version (ElasticBF's segment size and lifeTime are scaled down as well) that takes roughly 25 minutes, but its numbers are not comparable to the paper.
 
 7. `fig13-14.sh`: Measures the query latency and the number of read bytes for workload type II using a slower SSD.
     ```
