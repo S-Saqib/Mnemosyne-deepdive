@@ -17,7 +17,7 @@ The repository is structured as follows:
 
 The modified RocksDB also implements **ElasticBF** (Li et al., USENIX ATC 2019),
 so that it can be compared with RocksDB, Mnemosyne and Mnemosyne+ on the same
-workloads: `exp-scripts/fig12.sh` runs it as part of Figure 12, and `--ebf`
+workloads: `exp-scripts/fig11.sh` and `exp-scripts/fig12.sh` run it as part of Figures 11 and 12, and `--ebf`
 adds it to any other `query_lat_exp` or `runtime_tput_exp` run. See
 [ELASTICBF.md](ELASTICBF.md) for the design, the flags, and the assumptions
 made where the paper is not explicit.
@@ -26,8 +26,9 @@ made where the paper is not explicit.
 
 The modified RocksDB also contains a port of **SHaMBa** (Mun et al., ADMS
 2022), which splits the Bloom filter of each file into modules and lets a
-lookup skip modules that are not useful: `exp-scripts/fig12.sh` runs it as part
-of Figure 12, and `--shamba` adds it to any other `query_lat_exp` run. See
+lookup skip modules that are not useful: `exp-scripts/fig11.sh` and
+`exp-scripts/fig12.sh` run it as part of Figures 11 and 12, and `--shamba` adds
+it to any other `query_lat_exp` or `runtime_tput_exp` run. See
 [SHAMBA.md](SHAMBA.md) for how it maps to the code, the flags, and the
 differences from the released SHaMBa code.
 
@@ -216,13 +217,15 @@ Below are the details for each script.
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig11.sh
     ```
     You can specify the number of runs by changing variable `R` in file `skew-aware-bpk-benchmark/tput_exp.sh` (line 7).
+    `QUICK=1 ./fig11.sh` (or `./run_smallscale_fig11.sh` from the repository root) runs a ~1/1000 scale version that only checks that the pipeline works: it generates `small_workload_type_I.txt` (20K inserts, 20K updates, 40K empty queries) with `workload_generator_scripts/small_workload_type_I.sh`, does one run with a smaller buffer and block cache, and labels the x-axis in thousands of operations. Its numbers are not comparable to the paper, and it overwrites the full-scale outputs and figures.
+    Besides the methods shown in the paper, this script also runs ElasticBF and SHaMBa (the `--ebf` and `--shamba` flags of `runtime_tput_exp`, set in `skew-aware-bpk-benchmark/tput_exp.sh`, with the same knobs and defaults as in Figure 12). For ElasticBF, the bits-per-key curve shows the bits-per-key of the filter units held in memory. For SHaMBa, it shows the size of all the modules on disk, which stays at `b` even when lookups skip modules. With six methods instead of four, this experiment takes about one and a half times as long and keeps six copies of the database on the fast SSD.
 
 6. `fig12.sh`: Meausres the query latency for workload type II (21M inserts followed by 31M mixed queries and 10M updates) on the fast SSD. We turn on *direct read* so `RAM_DB_HOME` is not supported in this experiment.
     ```
     FAST_DB_HOME=/scratchFastSSD/${USER}/db_working_home ./fig12.sh
     ```
     You can directly set the number of runs in `fig12.sh` by specifying the variable `RUNS`, just like `fig4.sh`.
-    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction, ElasticBF and SHaMBa (the `--monkey`, `--ebf` and `--shamba` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). SHaMBa runs with two modules per file and may skip the second one; `SHAMBA_SKIP=none` or `SHAMBA_SKIP=F` in front of the command selects the other two variants (see [SHAMBA.md](SHAMBA.md)). No other figure runs them. It also sweeps the bits-per-key from 2 to 12 instead of the paper's 2 to 7 (`bpk_list` in the same script). With seven methods instead of three and 11 bits-per-key values instead of 6, this experiment takes roughly four and a half times as long as the paper's version and keeps seven copies of the database on the fast SSD.
+    Besides the three methods shown in the paper, this script also runs Monkey with both bottom-up and top-down level construction, ElasticBF and SHaMBa (the `--monkey`, `--ebf` and `--shamba` flags of `query_lat_exp`, set in `skew-aware-bpk-benchmark/exp_query_lat.sh`). SHaMBa runs with two modules per file and may skip the second one; `SHAMBA_SKIP=none` or `SHAMBA_SKIP=F` in front of the command selects the other two variants (see [SHAMBA.md](SHAMBA.md)). Apart from Figure 11, no other figure runs ElasticBF or SHaMBa. It also sweeps the bits-per-key from 2 to 12 instead of the paper's 2 to 7 (`bpk_list` in the same script). With seven methods instead of three and 11 bits-per-key values instead of 6, this experiment takes roughly four and a half times as long as the paper's version and keeps seven copies of the database on the fast SSD.
     To quickly check that the whole pipeline works, add `QUICK=1` in front of the command. This runs a ~1/1000 scale version (ElasticBF's segment size and lifeTime are scaled down as well) that takes roughly 25 minutes, but its numbers are not comparable to the paper.
 
 7. `fig13-14.sh`: Measures the query latency and the number of read bytes for workload type II using a slower SSD.

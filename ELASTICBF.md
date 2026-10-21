@@ -55,8 +55,7 @@ Scripts:
 
 * `skew-aware-bpk-benchmark/exp_query_lat.sh`: the Fig. 12 sweep
   (Z x ZD x bpk), which passes `--ebf`; ElasticBF knobs via `EBF_SEG_SIZE`,
-  `EBF_UNITS`, `EBF_UNIT_BPK`, `EBF_LIFETIME`, `EBF_EXTRA_FLAGS`. This is the
-  only experiment script that runs ElasticBF.
+  `EBF_UNITS`, `EBF_UNIT_BPK`, `EBF_LIFETIME`, `EBF_EXTRA_FLAGS`.
 * `exp-scripts/fig12.sh`: generates the workloads, runs the sweep, aggregates
   into `agg_output/` and plots `exp-figures/Fig12-*.pdf` (ElasticBF in orange).
   With `QUICK=1` it also scales the segment size and lifeTime down.
@@ -64,7 +63,9 @@ Scripts:
   results exist, so the existing aggregation script works unchanged.
 * `runtime_tput_exp --ebf` adds ElasticBF to workload type I (Fig. 11); its
   tracked bits-per-key column is the bits-per-key of the units resident in
-  memory. The Fig. 11 script (`tput_exp.sh`) does not pass the flag.
+  memory. The Fig. 11 sweep (`skew-aware-bpk-benchmark/tput_exp.sh`, run by
+  `exp-scripts/fig11.sh`) passes it, with the same environment knobs as
+  `exp_query_lat.sh`; `exp-figures/Fig11-*.pdf` show ElasticBF in orange.
 
 ## How the paper maps to the code
 

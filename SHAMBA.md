@@ -67,8 +67,12 @@ Scripts:
 
 * `skew-aware-bpk-benchmark/exp_query_lat.sh`: the Fig. 12 sweep
   (Z x ZD x bpk), which passes `--shamba`; SHaMBa knobs via `SHAMBA_MODULES`,
-  `SHAMBA_SKIP`, `SHAMBA_TH1` and `SHAMBA_TH2`. This is the only experiment
-  script that runs SHaMBa.
+  `SHAMBA_SKIP`, `SHAMBA_TH1` and `SHAMBA_TH2`.
+* `skew-aware-bpk-benchmark/tput_exp.sh`: the Fig. 11 sweep (workload type I,
+  run by `exp-scripts/fig11.sh`), which passes the same `--shamba*` flags of
+  `runtime_tput_exp` with the same knobs; `exp-figures/Fig11-*.pdf` show
+  SHaMBa in brown, dash-dotted. Its bits-per-key curve is the size of all the
+  modules on disk, so skipped modules still count.
 * `exp-scripts/fig12.sh`: generates the workloads, runs the sweep, aggregates
   into `agg_output/` and plots `exp-figures/Fig12-*.pdf` (SHaMBa in brown,
   dash-dotted). For example, `SHAMBA_SKIP=none ./fig12.sh` plots SHaMBa-eq
@@ -207,6 +211,6 @@ and RocksDB 199 MB.
   `elasticbf_test`). Skipping a module can only add false positives; in the
   runs done so far, every policy returned the same found and not-found counts
   as RocksDB.
-* Only `query_lat_exp` has the `--shamba` flags; `runtime_tput_exp` and the
+* Only `query_lat_exp` and `runtime_tput_exp` have the `--shamba` flags; the
   other benchmarks do not run SHaMBa.
 * `MultiGet` does not apply SHaMBa's skipping (the harness only issues `Get`).
