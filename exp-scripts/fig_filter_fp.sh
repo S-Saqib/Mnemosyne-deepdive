@@ -7,12 +7,32 @@
 #   and filter blocks (high priority, not pinned), then 1M uniform point lookups
 #   with 0, 20, ..., 100% zero-result lookups interleaved; one figure per
 #   bits-per-key (6 and 12).
+# DIST=1 draws the lookups from a normal distribution instead (centred on the
+# middle of the key range, standard deviation of about NDEV/62 of the key
+# range, NDEV=1 by default). Its workloads, outputs and figures are named with
+# normal-sigma<NDEV>, so the uniform ones are kept.
 
 # Exit immediately if any command fails.
 set -e
 ulimit -n 65535
 
 RUNS="${RUNS:-1}"
+DIST="${DIST:-0}"
+NDEV="${NDEV:-1.0}"
+if [ "${DIST}" = "1" ]; then
+	TAG="normal-sigma${NDEV}"
+	FIG_PREFIX="FigFilterFP-${TAG}"
+	TITLE_SUFFIX=", normal (NDEV=${NDEV})"
+elif [ "${DIST}" = "0" ]; then
+	TAG=""
+	FIG_PREFIX="FigFilterFP"
+	TITLE_SUFFIX=""
+else
+	echo "DIST must be 0 (uniform) or 1 (normal)"
+	exit 1
+fi
+# read by the workload, experiment and merge scripts
+export DIST NDEV TAG
 
 # QUICK=1 runs a 1/100 scale version (20K keys, 10K lookups) that only checks
 # that the whole pipeline works; its numbers are not meaningful.
@@ -42,7 +62,7 @@ cd ../plot_scripts/
 echo "[Filter FP] ⏳ Plotting..."
 for bpk in 6 12
 do
-	python3 filter-fp-plot.py --path=../skew-aware-bpk-benchmark/agg_output/filter_fp_bpk${bpk}.csv --name=../exp-figures/FigFilterFP-bpk${bpk}.pdf --title="${bpk} bits-per-key"
+	python3 filter-fp-plot.py --path=../skew-aware-bpk-benchmark/agg_output/filter_fp_${TAG:+${TAG}_}bpk${bpk}.csv --name=../exp-figures/${FIG_PREFIX}-bpk${bpk}.pdf --title="${bpk} bits-per-key${TITLE_SUFFIX}"
 done
 echo "[Filter FP] ✅ Plotting completes."
 cd -

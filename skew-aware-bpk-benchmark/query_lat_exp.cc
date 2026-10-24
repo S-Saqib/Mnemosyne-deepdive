@@ -184,7 +184,7 @@ int runExperiments(EmuEnv* _env) {
     
     
     // Run workload
-    std::cout << "Ingestiing workload (purely inserts) with default RocksDB..." << std::endl;
+    std::cout << "Ingesting workload (purely inserts) with default RocksDB..." << std::endl;
     runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
     
     s = CloseDB(db, flush_options);
@@ -289,7 +289,7 @@ int runExperiments(EmuEnv* _env) {
         s = DB::Open(options, _env->path + "-" + name, &db_monkey);
         if (!s.ok()) std::cerr << s.ToString() << std::endl;
         ingestion_query_track = new QueryTracker();
-        std::cout << "Ingestiing workload (purely inserts) with " << name << "..." << std::endl;
+        std::cout << "Ingesting workload (purely inserts) with " << name << "..." << std::endl;
         runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
         s = ReopenDB(db_monkey, options, flush_options);
         if (!s.ok()) std::cerr << s.ToString() << std::endl;
@@ -358,7 +358,7 @@ int runExperiments(EmuEnv* _env) {
     s = DB::Open(options, _env->path + "-mnemosyne", &db_mnemosyne);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     ingestion_query_track = new QueryTracker();
-    std::cout << "Ingestiing workload (purely inserts) with mnemosyne..." << std::endl;
+    std::cout << "Ingesting workload (purely inserts) with mnemosyne..." << std::endl;
     runWorkload(db_mnemosyne, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
     s = ReopenDB(db_mnemosyne, options, flush_options);
     std::string copy_cmd = "mkdir -p " + _env->path + "-mnemosyne-plus/ && cp " + _env->path + "-mnemosyne/* " + _env->path + "-mnemosyne-plus/";
@@ -373,7 +373,7 @@ int runExperiments(EmuEnv* _env) {
     db_mnemosyne->GetOptions().statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     // TraceOptions trace_opt;
     // db_monkey->StartIOTrace(trace_opt, std::move(trace_writer));
-    std::cout << "Executing workload (containing mixed operations) with default RocksDB..." << std::endl;
+    std::cout << "Executing workload (containing mixed operations) with mnemosyne..." << std::endl;
     runWorkload(db_mnemosyne, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, mnemosyne_query_track, running_stats_of);
     // db_monkey->EndIOTrace();
     SetPerfLevel(kDisable);
@@ -510,7 +510,7 @@ int runExperiments(EmuEnv* _env) {
       if (!s.ok()) std::cerr << s.ToString() << std::endl;
       assert(s.ok());
       ingestion_query_track = new QueryTracker();
-      std::cout << "Ingestiing workload (purely inserts) with ElasticBF..." << std::endl;
+      std::cout << "Ingesting workload (purely inserts) with ElasticBF..." << std::endl;
       runWorkload(db_elasticbf, _env, &ebf_options, &ebf_table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
       s = BackgroundJobMayAllCompelte(db_elasticbf);
       uint64_t ebf_budget_bytes = getElasticBFBudgetBytes(ebf_options);
@@ -609,7 +609,7 @@ int runExperiments(EmuEnv* _env) {
       if (!s.ok()) std::cerr << s.ToString() << std::endl;
       assert(s.ok());
       ingestion_query_track = new QueryTracker();
-      std::cout << "Ingestiing workload (purely inserts) with SHaMBa..." << std::endl;
+      std::cout << "Ingesting workload (purely inserts) with SHaMBa..." << std::endl;
       runWorkload(db_shamba, _env, &shamba_options, &shamba_table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track, running_stats_of);
       s = ReopenDB(db_shamba, shamba_options, flush_options);
       if (!s.ok()) std::cerr << s.ToString() << std::endl;

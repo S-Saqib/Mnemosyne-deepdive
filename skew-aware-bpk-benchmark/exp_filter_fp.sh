@@ -19,8 +19,10 @@ BCC_META_RATIO="${BCC_META_RATIO:-1.5}"
 BCHPR="${BCHPR:-0.9}"
 # Remember to specify a path for your dedicated storage device
 DB_HOME="${FAST_DB_HOME:-./db_working_home}"
-WORKLOAD_HOME="../workload_generator_scripts/filter_fp"
-OUTPUT_DIR="output-filter-fp"
+# TAG (set by ../exp-scripts/fig_filter_fp.sh) names the workload distribution;
+# it is empty for the uniform workload
+WORKLOAD_HOME="../workload_generator_scripts/filter_fp${TAG:+_${TAG}}"
+OUTPUT_DIR="output-filter-fp${TAG:+-${TAG}}"
 # ElasticBF knobs (see ../ELASTICBF.md): 256 KB segments keep 4 segments per
 # 1 MB file, as in Figure 12
 EBF_SEG_SIZE="${EBF_SEG_SIZE:-262144}"

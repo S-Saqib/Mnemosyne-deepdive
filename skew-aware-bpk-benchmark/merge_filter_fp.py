@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Average the "filter stats (<method>): ..." lines of exp_filter_fp.sh over the
 # runs and write one CSV per bits-per-key:
-#   python3 merge_filter_fp.py <runs> <agg_dir> <output_prefix>
+#   python3 merge_filter_fp.py <runs> <agg_dir> <output_prefix> [tag]
 # reads <output_prefix><run>/bpk<bpk>_Z<Z>-output.txt and writes
-# <agg_dir>/filter_fp_bpk<bpk>.csv (one row per proportion of zero-result
-# lookups and method).
+# <agg_dir>/filter_fp_bpk<bpk>.csv, or <agg_dir>/filter_fp_<tag>_bpk<bpk>.csv
+# with a tag (one row per proportion of zero-result lookups and method).
 import glob
 import os
 import re
@@ -17,7 +17,7 @@ FIELDS = ['filter_misses', 'filter_cache_hits', 'filter_positives',
           'true_positives', 'false_positives', 'filter_negatives']
 
 
-def main(runs, agg_dir, output_prefix):
+def main(runs, agg_dir, output_prefix, tag):
     # (bpk, Z, method) -> field -> list of values, one per run
     values = defaultdict(lambda: defaultdict(list))
     for run in range(1, runs + 1):
@@ -37,7 +37,7 @@ def main(runs, agg_dir, output_prefix):
     for (bpk, z, method), fields in values.items():
         by_bpk[bpk].append((z, method, fields))
     for bpk, rows in by_bpk.items():
-        out = os.path.join(agg_dir, 'filter_fp_bpk%s.csv' % bpk)
+        out = os.path.join(agg_dir, 'filter_fp_%sbpk%s.csv' % (tag + '_' if tag else '', bpk))
         with open(out, 'w') as f:
             f.write('zero_pct,method,runs,' + ','.join(FIELDS) + '\n')
             for z, method, fields in sorted(rows):
@@ -49,4 +49,4 @@ def main(runs, agg_dir, output_prefix):
 
 
 if __name__ == '__main__':
-    main(int(sys.argv[1]), sys.argv[2], sys.argv[3])
+    main(int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else '')
