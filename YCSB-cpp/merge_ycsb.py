@@ -1,9 +1,13 @@
+import os
 import sys
 
 runs = int(sys.argv[1])
 exp_dir = sys.argv[2]
 workloads = ["load", "a", "b", "c", "d", "f"]
-methods = ["mnemosyne-plus", "mnemosyne", "default"]
+methods = ["mnemosyne-plus", "mnemosyne", "monkey-bottom-up", "monkey-top-down", "default"]
+# only the methods that were run (e.g. older results have no Monkey)
+methods = [m for m in methods
+           if os.path.exists(exp_dir + "/run1/" + m + "_workload" + workloads[1] + "_ycsb_result.txt")]
 
 
 def aggregate(filename, result, workload_index):
@@ -40,7 +44,8 @@ for i in range(len(methods)):
     for j in range(1, len(workloads)):
         for k in range(1, runs+1):
             aggregate(exp_dir + "/run" + str(k) + "/" + methods[i] + "_workload" + workloads[j] + "_ycsb_result.txt", total_results[methods[i]], j)
-    total_results[methods[i]][0] /= runs*len(workloads)*1.0
+    # one load per workload (workloads[0] is "load" itself)
+    total_results[methods[i]][0] /= runs*(len(workloads) - 1)*1.0
     for j in range(1, len(workloads)):
         total_results[methods[i]][j] /= runs*1.0
 

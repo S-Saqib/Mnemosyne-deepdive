@@ -62,6 +62,10 @@ void printElasticBFStats(const Options& op, ofstream &of);
 uint64_t getElasticBFBudgetBytes(const Options& op);
 // SHaMBa helper
 void configShamba(const EmuEnv* _env, Options* op, BlockBasedTableOptions* table_op);
+// filter miss and false positive helpers
+uint64_t getIndexAndFilterSize(DB* db);
+void printFilterStats(DB* db, const std::string& name, const QueryTracker* track,
+                      uint64_t extra_filter_misses, ofstream &of);
 
 void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, ofstream & of, uint16_t n = 1);
 

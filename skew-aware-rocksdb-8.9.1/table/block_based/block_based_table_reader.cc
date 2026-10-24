@@ -2409,6 +2409,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   bool tmp_no_io = no_io;
   HashDigest origin_hash_digest = get_context->hash_digest_;
   const bool use_elastic_bf = !skip_filters && rep_->elastic_table != nullptr;
+  // whether a filter (or a filter module) answered this lookup; the filter
+  // tickers below only count such lookups, as in upstream RocksDB
+  bool filter_consulted = use_elastic_bf;
   if (use_elastic_bf) {
     size_t ts_sz_e =
         rep_->internal_comparator.user_comparator()->timestamp_size();
@@ -2426,6 +2429,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       if (get_context->shamba_module_skipping_) break;
       tmp_no_io = true;
     }
+    filter_consulted = filter_consulted || filter != nullptr;
     may_match = FullFilterKeyMayMatch(filter, key, tmp_no_io, prefix_extractor,
                                       get_context, &lookup_context,
                                       read_options, modular_filter_index);
@@ -2446,7 +2450,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   get_context->hash_digest_ = origin_hash_digest;
 
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
-  if (rep_->whole_key_filtering) {
+  if (rep_->whole_key_filtering && filter_consulted) {
     if (may_match) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE);
       PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, 1, rep_->level);
@@ -2570,7 +2574,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       }
     }
-    if (matched && (filter != nullptr || use_elastic_bf)) {
+    if (matched && filter_consulted) {
       if (rep_->whole_key_filtering) {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
       } else {

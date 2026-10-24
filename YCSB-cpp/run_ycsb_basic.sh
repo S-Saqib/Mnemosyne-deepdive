@@ -50,9 +50,12 @@ if [ ! -e ../rocksdb-8.9.1/librocksdb.so.8.9 ]; then
 fi
 
 # Compile the Mnemosyne
+# The shared library is built in its own object directory: the objects of
+# librocksdb.a ("make static_lib", used by skew-aware-bpk-benchmark) are not
+# position independent, and "make clean" would delete librocksdb.a.
 if [ ! -e ../skew-aware-rocksdb-8.9.1/librocksdb.so.8.9 ]; then
   cd ../skew-aware-rocksdb-8.9.1
-  make clean && make -j 32 shared_lib
+  make -j$(nproc) OBJ_DIR=shared-objects shared_lib
   cd -
 fi
 
@@ -81,23 +84,34 @@ else
     OUTPUT_DIR_SUFFIX="_no_dynamic_cmpact"
 fi
 
-OUTPUT_DIR="exp-th${NUM_THREADS}${OUTPUT_DIR_SUFFIX}"
+# YCSB_OUTPUT_TAG (e.g. _small_bpk6) keeps the results of other settings apart
+OUTPUT_DIR="exp-th${NUM_THREADS}${OUTPUT_DIR_SUFFIX}${YCSB_OUTPUT_TAG}"
 mkdir -p ${OUTPUT_DIR}
 
 
 
 # --- Execute Experiment ---
 
-workload_types=("a" "b" "c" "d" "f")
-runs=3
+# Each setting can be overridden from the environment (YCSB_*), e.g. for the
+# small-scale version of Figure 15 (exp-scripts/fig15-16.sh with QUICK=1)
+workload_types=(${YCSB_WORKLOADS:-a b c d f})
+runs=${YCSB_RUNS:-3}
 fieldlength=9
 field_len_dist="uniform"
-operationcount=60000000
-recordcount=30000000
+operationcount=${YCSB_OPS:-60000000}
+recordcount=${YCSB_RECORDS:-30000000}
 dynamic_cmpct=${DYNAMIC_COMPACT}
-block_cache_size=209715200 # 200MB
-bpk=2
+block_cache_size=${YCSB_BCC:-209715200} # 200MB
+bpk=${YCSB_BPK:-2}
 threads=${NUM_THREADS}
+# memtable size, memtable arena block size, SST file size and L1 capacity
+# (32MB, 1MB, 32MB and 128MB in the options files); left unchanged unless
+# overridden. The arena block must stay well below the memtable size: a
+# memtable is full as soon as its first block is larger than write_buffer_size.
+write_buffer_size=${YCSB_WRITE_BUFFER_SIZE:-33554432}
+arena_block_size=${YCSB_ARENA_BLOCK_SIZE:-1048576}
+target_file_size_base=${YCSB_TARGET_FILE_SIZE_BASE:-33554432}
+max_bytes_for_level_base=${YCSB_MAX_BYTES_FOR_LEVEL_BASE:-134217728}
 
 echo "Starting YCSB experiment with the following settings:"
 echo "  - Number of Threads: $NUM_THREADS"
@@ -108,10 +122,18 @@ echo "  - Bits-per-key: ${bpk}"
 echo "  - Operations: ${operationcount}"
 echo "  - Records: ${recordcount}"
 echo "  - Runs: ${runs}"
+echo "  - Memtable / arena block / SST file / L1 size: ${write_buffer_size} / ${arena_block_size} / ${target_file_size_base} / ${max_bytes_for_level_base} bytes"
+echo "  - Block cache: ${block_cache_size} bytes"
 # --- Pre-run Checks ---
 echo "----------------------------------------------------"
 
-methods=("mnemosyne-plus" "mnemosyne" "default")
+# monkey-bottom-up and monkey-top-down: Monkey with bottom-up
+# (level_compaction_dynamic_level_bytes=true) and top-down (=false) level
+# construction, whatever DYNAMIC_COMPACT is. Monkey knows the workload: its
+# bits-per-key of each level are computed by monkey_bpk.py from the number of
+# entries at the end of each workload. "default" runs last so that ycsb is
+# rebuilt only once per run.
+methods=(${YCSB_METHODS:-mnemosyne-plus mnemosyne monkey-bottom-up monkey-top-down default})
 compiled_by_default="false"
 cp rocksdb/rocksdb.properties rocksdb/rocksdb.origin_properties
 sed -i "s|rocksdb\.dbname=.*|rocksdb.dbname=${DB_HOME}|g" rocksdb/rocksdb.properties
@@ -124,7 +146,13 @@ do
 	cp rocksdb/options.ini rocksdb/origin_options.ini
 	cp rocksdb/options-exp-${method}.ini rocksdb/options.ini
 	sed -i "s|block_cache={capacity=33554432}|block_cache={capacity=${block_cache_size}}|g" rocksdb/options.ini
-	sed -i "s|level_compaction_dynamic_level_bytes=true|level_compaction_dynamic_level_bytes=${dynamic_cmpct}|g" rocksdb/options.ini
+	if [[ ${method} != monkey-* ]]; then
+	  sed -i "s|level_compaction_dynamic_level_bytes=true|level_compaction_dynamic_level_bytes=${dynamic_cmpct}|g" rocksdb/options.ini
+	fi
+	sed -i "s|^  write_buffer_size=33554432|  write_buffer_size=${write_buffer_size}|" rocksdb/options.ini
+	sed -i "s|^  arena_block_size=1048576|  arena_block_size=${arena_block_size}|" rocksdb/options.ini
+	sed -i "s|^  target_file_size_base=33554432|  target_file_size_base=${target_file_size_base}|" rocksdb/options.ini
+	sed -i "s|^  max_bytes_for_level_base=134217728|  max_bytes_for_level_base=${max_bytes_for_level_base}|" rocksdb/options.ini
   	for workload_type in ${workload_types[@]}
   	do
 	  cp workloads/workload${workload_type} workloads/workload-temp
@@ -135,6 +163,18 @@ do
 	  sed -i "s/bloomfilter:5:false/bloomfilter:${bpk}:false/g" rocksdb/options.ini
 
 	  OUTPUT_PATH="${OUTPUT_DIR}/run${i}/${method}_workload${workload_type}_ycsb_result.txt"
+	  if [[ ${method} == monkey-* ]]; then
+	    # bits-per-key of each level for this workload
+	    MONKEY_BPK_PATH="${OUTPUT_DIR}/run${i}/${method}_workload${workload_type}_monkey_bpk.txt"
+	    if ! python3 monkey_bpk.py workloads/workload-temp rocksdb/options.ini > "${MONKEY_BPK_PATH}"; then
+	      echo "Error: cannot compute the Monkey bits-per-key for workload ${workload_type}"
+	      rm workloads/workload-temp
+	      mv rocksdb/origin_options.ini rocksdb/options.ini
+	      mv rocksdb/rocksdb.origin_properties rocksdb/rocksdb.properties
+	      exit 1
+	    fi
+	    cat "${MONKEY_BPK_PATH}"
+	  fi
 	  echo "[Run ${i}] Executing workload ${workload_type} with ${method}:"
 	  if [ ${method} == "default" ]; then
 	        if [ "${compiled_by_default}" == "false" ]; then

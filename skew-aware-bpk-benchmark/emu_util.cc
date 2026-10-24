@@ -1055,7 +1055,18 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
    
   table_op->block_size = _env->entries_per_page * _env->entry_size;
   table_op->pin_top_level_index_and_filter = _env->pin_top_level_index_and_filter;
-   
+  if (_env->no_pinning) {
+    // index and filter blocks stay evictable in the block cache, whatever their level or partition
+    table_op->pin_l0_filter_and_index_blocks_in_cache = false;
+    table_op->pin_top_level_index_and_filter = false;
+    table_op->metadata_cache_options.top_level_index_pinning = PinningTier::kNone;
+    table_op->metadata_cache_options.partition_pinning = PinningTier::kNone;
+    table_op->metadata_cache_options.unpartitioned_pinning = PinningTier::kNone;
+  }
+  if (_env->no_compression) {
+    op->compression = kNoCompression;
+  }
+
   // Set all table options
   op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
 
@@ -1631,6 +1642,40 @@ uint64_t getElasticBFBudgetBytes(const Options& op) {
   Status s = GetElasticBFStatistics(op.table_factory.get(), &st);
   if (!s.ok()) return 0;
   return static_cast<uint64_t>(st.budget_bits / 8.0);
+}
+
+
+// Size of the index and filter blocks of all live SST files, i.e. the
+// metadata that RocksDB keeps in the block cache.
+uint64_t getIndexAndFilterSize(DB* db) {
+  TablePropertiesCollection props;
+  Status s = db->GetPropertiesOfAllTables(&props);
+  if (!s.ok()) return 0;
+  uint64_t total = 0;
+  for (const auto& p : props) {
+    total += p.second->index_size + p.second->filter_size;
+  }
+  return total;
+}
+
+// One line per method with the filter counters of the query phase:
+// filter_misses are filter blocks (or modules) read because they were not in
+// the block cache, plus extra_filter_misses (ElasticBF units loaded on demand);
+// positives, true positives and false positives count file lookups whose
+// filter was consulted, so a filter made of several modules counts once.
+void printFilterStats(DB* db, const std::string& name, const QueryTracker* track,
+                      uint64_t extra_filter_misses, ofstream &of) {
+  uint64_t positives = db->GetOptions().statistics->getTickerCount(BLOOM_FILTER_FULL_POSITIVE);
+  uint64_t negatives = db->GetOptions().statistics->getTickerCount(BLOOM_FILTER_USEFUL);
+  uint64_t true_positives = track->bloom_sst_true_positive_count;
+  uint64_t false_positives = positives > true_positives ? positives - true_positives : 0;
+  of << "filter stats (" << name << "):"
+     << " filter_misses=" << track->filter_block_read_count + extra_filter_misses
+     << " filter_cache_hits=" << track->block_cache_filter_hit_count
+     << " filter_positives=" << positives
+     << " true_positives=" << true_positives
+     << " false_positives=" << false_positives
+     << " filter_negatives=" << negatives << std::endl;
 }
 
 

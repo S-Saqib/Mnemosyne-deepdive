@@ -193,6 +193,20 @@ int runExperiments(EmuEnv* _env) {
     s= DB::Open(options, _env->path, &db);
     assert(s.ok());
 
+    if (_env->bcc_metadata_ratio > 0) {
+      // every method gets the same block cache: a multiple of the index and
+      // filter size of RocksDB (same bits-per-key for every file)
+      uint64_t metadata_bytes = getIndexAndFilterSize(db);
+      _env->block_cache_capacity = (int) ceil(_env->bcc_metadata_ratio * metadata_bytes / 1024.0);
+      running_stats_of << "index and filter size of RocksDB (bytes): " << metadata_bytes
+                       << "\t block cache (KB): " << _env->block_cache_capacity << std::endl;
+      CloseDB(db, flush_options);
+      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      s = DB::Open(options, _env->path, &db);
+      assert(s.ok());
+    }
+
     get_perf_context()->Reset();
     get_iostats_context()->Reset();
     db->GetOptions().statistics->Reset();
@@ -225,6 +239,7 @@ int runExperiments(EmuEnv* _env) {
     running_stats_of << "accessed data blocks: " << query_track->data_block_read_count << std::endl;
     running_stats_of << "read bytes: " << query_track->bytes_read << std::endl;
     running_stats_of << "overall false positives: " << bloom_false_positives  << std::endl;
+    printFilterStats(db, "rocksdb", query_track, 0, running_stats_of);
     running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate: " << 
       bloom_false_positives*100.0/(bloom_false_positives + query_track->bloom_sst_miss_count) << "%" << std::endl;
     if (query_track->point_lookups_completed + query_track->zero_point_lookups_completed > 0) {
@@ -299,6 +314,7 @@ int runExperiments(EmuEnv* _env) {
         running_stats_of << "accessed data blocks (" << name << "): " << monkey_query_track->data_block_read_count << std::endl;
         running_stats_of << "read bytes (" << name << "): " << monkey_query_track->bytes_read << std::endl;
         running_stats_of << "overall false positives (" << name << "): " << bloom_false_positives << std::endl;
+        printFilterStats(db_monkey, name, monkey_query_track, 0, running_stats_of);
         running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (" << name << "): " << 
           bloom_false_positives*100.0/(bloom_false_positives + monkey_query_track->bloom_sst_miss_count) << "%" << std::endl;
         if (monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed > 0) {
@@ -375,6 +391,7 @@ int runExperiments(EmuEnv* _env) {
     running_stats_of << "accessed data blocks (mnemosyne): " << mnemosyne_query_track->data_block_read_count << std::endl;
     running_stats_of << "read bytes (mnemosyne): " << mnemosyne_query_track->bytes_read << std::endl;
     running_stats_of << "overall false positives (mnemosyne): " << bloom_false_positives << std::endl;
+    printFilterStats(db_mnemosyne, "mnemosyne", mnemosyne_query_track, 0, running_stats_of);
     running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (mnemosyne): " << 
       bloom_false_positives*100.0/(bloom_false_positives + mnemosyne_query_track->bloom_sst_miss_count) << "%" << std::endl;
     if (mnemosyne_query_track->point_lookups_completed + mnemosyne_query_track->zero_point_lookups_completed > 0) {
@@ -444,6 +461,7 @@ int runExperiments(EmuEnv* _env) {
     running_stats_of << "read bytes (mnemosyne-plus): " << mnemosyne_plus_query_track->bytes_read << std::endl;
     running_stats_of << "used data blocks (mnemosyne-plus): " << mnemosyne_plus_query_track->data_block_read_count << std::endl;
     running_stats_of << "overall false positives (mnemosyne-plus): " << bloom_false_positives << std::endl;
+    printFilterStats(db_mnemosyne_plus, "mnemosyne-plus", mnemosyne_plus_query_track, 0, running_stats_of);
     running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (mnemosyne-plus): " << 
       bloom_false_positives*100.0/(bloom_false_positives + mnemosyne_plus_query_track->bloom_sst_miss_count) << "%" << std::endl;
     if (mnemosyne_plus_query_track->point_lookups_completed + mnemosyne_plus_query_track->zero_point_lookups_completed > 0) {
@@ -544,6 +562,14 @@ int runExperiments(EmuEnv* _env) {
       running_stats_of << "read bytes (elasticbf): " << elasticbf_query_track->bytes_read << std::endl;
       running_stats_of << "used data blocks (elasticbf): " << elasticbf_query_track->data_block_read_count << std::endl;
       running_stats_of << "overall false positives (elasticbf): " << bloom_false_positives << std::endl;
+      {
+        ElasticBFStatistics ebf_st;
+        uint64_t ebf_unit_loads = 0;
+        if (GetElasticBFStatistics(ebf_options.table_factory.get(), &ebf_st).ok()) {
+          ebf_unit_loads = ebf_st.unit_loads;
+        }
+        printFilterStats(db_elasticbf, "elasticbf", elasticbf_query_track, ebf_unit_loads, running_stats_of);
+      }
       running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (elasticbf): " <<
         bloom_false_positives*100.0/(bloom_false_positives + elasticbf_query_track->bloom_sst_miss_count) << "%" << std::endl;
       if (elasticbf_query_track->point_lookups_completed + elasticbf_query_track->zero_point_lookups_completed > 0) {
@@ -608,6 +634,7 @@ int runExperiments(EmuEnv* _env) {
       running_stats_of << "accessed data blocks (shamba): " << shamba_query_track->data_block_read_count << std::endl;
       running_stats_of << "read bytes (shamba): " << shamba_query_track->bytes_read << std::endl;
       running_stats_of << "overall false positives (shamba): " << bloom_false_positives << std::endl;
+      printFilterStats(db_shamba, "shamba", shamba_query_track, 0, running_stats_of);
       running_stats_of << std::fixed << std::setprecision(6) << "overall false positive rate (shamba): " <<
         bloom_false_positives*100.0/(bloom_false_positives + shamba_query_track->bloom_sst_miss_count) << "%" << std::endl;
       if (shamba_query_track->point_lookups_completed + shamba_query_track->zero_point_lookups_completed > 0) {
@@ -701,6 +728,9 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<std::string> shamba_skip_cmd(group4, "shamba_skip", "SHaMBa module skipping: none (SHaMBa-eq), P (may skip the modules after the first one) or F (may also skip the whole filter) [def: P]", {"shamba_skip"});
   args::ValueFlag<double> shamba_th1_cmd(group4, "shamba_th1", "SHaMBa utility threshold below which the whole filter is skipped [def: 0.01]", {"shamba_th1"});
   args::ValueFlag<double> shamba_th2_cmd(group4, "shamba_th2", "SHaMBa utility threshold below which the modules after the first one are skipped [def: 0.02]", {"shamba_th2"});
+  args::Flag no_pin_cmd(group4, "no_pin", "Do not pin any index or filter block in the block cache", {"no_pin"});
+  args::Flag no_compression_cmd(group4, "no_compression", "Store SST files uncompressed", {"no_compression"});
+  args::ValueFlag<double> bcc_meta_ratio_cmd(group4, "bcc_meta_ratio", "Block cache = this ratio x index and filter size of RocksDB after ingestion, for every method (overrides --BCC) [def: 0, off]", {"bcc_meta_ratio"});
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
 
@@ -772,6 +802,9 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
     std::cerr << "--shamba_skip must be none, P or F" << std::endl;
     return 1;
   }
+  _env->no_pinning = no_pin_cmd ? true : false;
+  _env->no_compression = no_compression_cmd ? true : false;
+  _env->bcc_metadata_ratio = bcc_meta_ratio_cmd ? args::get(bcc_meta_ratio_cmd) : 0.0;
   _env->shamba_util_threshold_1 = shamba_th1_cmd ? args::get(shamba_th1_cmd) : 0.01;
   _env->shamba_util_threshold_2 = shamba_th2_cmd ? args::get(shamba_th2_cmd) : 0.02;
 

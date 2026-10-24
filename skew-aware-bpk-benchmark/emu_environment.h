@@ -52,11 +52,14 @@ public:
   bool cache_index_and_filter_blocks_with_high_priority;      // Deprecated by no_block_cache
 
   bool pin_top_level_index_and_filter;                        // TBC
+  bool no_pinning = false;          // no_pin | do not pin any index or filter block in the block cache
+  double bcc_metadata_ratio = 0.0;  // bcc_meta_ratio | block cache = ratio x index and filter size of RocksDB after ingestion (0 => use --BCC)
 
 
   // Other DBOptions
   bool create_if_missing = true;
   bool ribbon_filter = false;
+  bool no_compression = false;            // no_compression | store SST files uncompressed
   bool run_monkey = false;                // monkey | also run Monkey (bottom-up and top-down) in query_lat_exp
   bool allow_write_stall;
   bool level_compaction_dynamic_level_bytes = true;

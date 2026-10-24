@@ -291,6 +291,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, max_modulars),
           OptionType::kSizeT,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        // bits-per-key of each level for kNaiveMonkeyBpkAlloc, e.g. 6:7.2:5.8
+        {"naive_monkey_bpk_list",
+         OptionTypeInfo::Vector<double>(
+             offsetof(struct BlockBasedTableOptions, naive_monkey_bpk_list),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+             {0, OptionType::kDouble})},
         {"shamba_require_all_modules",
          {offsetof(struct BlockBasedTableOptions, shamba_require_all_modules),
           OptionType::kBoolean,
